@@ -1,6 +1,9 @@
 #include <stdio.h>
+#include <hoja_types.h>
 #include <dhcpserver.h>
 #include <dongle.h>
+
+#include "cores/cores.h"
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
@@ -9,7 +12,6 @@
 #include "lwip/udp.h"
 
 struct udp_pcb* global_pcb = NULL;
-
 
 #define UDP_PORT 4444
 #define BEACON_MSG_LEN_MAX sizeof(hoja_wlan_report_s)
@@ -21,6 +23,7 @@ struct udp_pcb* global_pcb = NULL;
 typedef struct 
 {
     bool running;
+    bool connected;
     uint8_t report_format;
     uint8_t mac_address[6];
     char device_name[32];
@@ -50,11 +53,40 @@ void _udp_receive_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_ad
                 {
                     // We are already in the correct report mode
                     // we can continue...
+                    _sm.connected = true;
+                }
+            }
+            else
+            {
+                switch(r->report_format)
+                {
+                    case CORE_REPORTFORMAT_SINPUT:
+                    if(core_init(CORE_REPORTFORMAT_SINPUT))
+                    {
+                        _sm.report_format = CORE_REPORTFORMAT_SINPUT;
+                        _sm.running = true;
+                        _sm.connected = true;
+                    }
+                    break;
+
+                    case CORE_REPORTFORMAT_SLIPPI:
+                    if(core_init(CORE_REPORTFORMAT_SLIPPI))
+                    {
+                        _sm.report_format = CORE_REPORTFORMAT_SLIPPI;
+                        _sm.running = true;
+                        _sm.connected = true;
+                    }
+                    break;
+
+                    // Do nothing
+                    default:
+                    return;
                 }
             }
             break;
 
             case HWLAN_REPORT_PASSTHROUGH:
+            core_input_report_tunnel(r);
             break;
         }
 
@@ -93,6 +125,11 @@ void wlan_report_tunnel_out(hoja_wlan_report_s report)
 void wlan_report_tunnel_in(const uint8_t *data, uint16_t len)
 {
 
+}
+
+bool wlan_is_connected()
+{
+    return _sm.connected;
 }
 
 int main()

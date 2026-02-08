@@ -20,10 +20,8 @@ const core_params_s _core_params_default = {
     .core_output_report_tunnel = NULL,
     .core_deinit = NULL,
 
-    .transport_type = GAMEPAD_TRANSPORT_UNDEFINED,
-    .transport_dev_mac = {0,0,0,0,0,0},
-    .transport_host_mac = {0,0,0,0,0,0},
-    .transport_task = NULL,
+    .core_transport = GAMEPAD_TRANSPORT_UNDEFINED,
+    .core_transport_task = NULL,
 
     .hid_device = NULL,
 };
@@ -36,10 +34,8 @@ core_params_s _core_params = {
     .core_output_report_tunnel = NULL,
     .core_deinit = NULL,
 
-    .transport_type = GAMEPAD_TRANSPORT_UNDEFINED,
-    .transport_dev_mac = {0,0,0,0,0,0},
-    .transport_host_mac = {0,0,0,0,0,0},
-    .transport_task = NULL,
+    .core_transport = GAMEPAD_TRANSPORT_UNDEFINED,
+    .core_transport_task = NULL,
 
     .hid_device = NULL,
 };
@@ -60,10 +56,11 @@ bool core_get_generated_report(core_report_s *out)
     return _core_params.core_report_generator(out);
 }
 
-void core_input_report_tunnel(const uint8_t *data, uint16_t len)
+void core_input_report_tunnel(hoja_wlan_report_s *report)
 {
     if(!_core_params.core_input_report_tunnel) return;
-    _core_params.core_input_report_tunnel(data, len);
+    if(report->report_format != _core_params.core_report_format) return;
+    _core_params.core_input_report_tunnel(report->data, report->len);
 }
 
 core_params_s* core_current_params()
@@ -71,49 +68,20 @@ core_params_s* core_current_params()
     return &_core_params;
 }
 
-bool core_init(gamepad_mode_t mode, gamepad_transport_t transport, bool pair)
+bool core_init(core_reportformat_t format)
 {
-    _core_params.transport_type = transport;
-    //memcpy(_core_params.transport_dev_mac, gamepad_config->gamepad_mac_address, 6);
-
-    // Clear host mac just in case first
-    memset(_core_params.transport_host_mac, 0, 6);
-
-    switch(transport)
+    switch(format)
     {
-        case GAMEPAD_TRANSPORT_USB:
-        //battery_set_charge_rate(200);
-        break;
-
-
-        case GAMEPAD_TRANSPORT_WLAN:
-        case GAMEPAD_TRANSPORT_BLUETOOTH:
-        //battery_set_charge_rate(250);
-        break;
-
-        case GAMEPAD_TRANSPORT_NESBUS:
-        case GAMEPAD_TRANSPORT_JOYBUSGC:
-        case GAMEPAD_TRANSPORT_JOYBUS64:
-        //battery_set_charge_rate(0);
-        break;
-
-        // Unsupported transport mode
-        default:
-        return false;
-    }
-
-    switch(mode)
-    {
-        case GAMEPAD_MODE_SINPUT:
+        case CORE_REPORTFORMAT_SINPUT:
         return core_sinput_init(&_core_params);
 
-        case GAMEPAD_MODE_N64:
+        case CORE_REPORTFORMAT_N64:
         return core_n64_init(&_core_params);
 
-        case GAMEPAD_MODE_GAMECUBE:
+        case CORE_REPORTFORMAT_GAMECUBE:
         return core_gamecube_init(&_core_params);
 
-        case GAMEPAD_MODE_GCUSB:
+        case CORE_REPORTFORMAT_SLIPPI:
         return core_slippi_init(&_core_params);
 
         default:
@@ -125,10 +93,4 @@ void core_deinit()
 {
     transport_stop();
     _core_params = _core_params_default;
-}
-
-void core_task(uint64_t timestamp)
-{
-    if(!_core_params.transport_task) return;
-    _core_params.transport_task(timestamp);
 }

@@ -284,46 +284,15 @@ const core_hid_device_t _sinput_hid_device = {
     .vid = SINPUT_VID,
 };
 
-
 void _core_sinput_deinit()
 {
 
 }
 
-
-/*------------------------------------------------*/
-// Public Functions
-
 volatile bool _sinput_transport_running = false;
 core_params_s *_sinput_core_params = NULL;
 
-bool core_sinput_init(core_params_s *params)
-{
-    _sinput_core_params = params;
-    
-    switch(params->transport_type)
-    {
-        case GAMEPAD_TRANSPORT_USB:
-        params->core_pollrate_us = 1000;
-        break;
-
-        // Unsupported transport methods
-        default:
-        return false;
-    }
-
-    params->hid_device = &_sinput_hid_device;
-
-    params->core_report_format          = CORE_REPORTFORMAT_SINPUT;
-    params->core_report_generator       = _core_sinput_get_generated_report;
-    params->core_input_report_tunnel    = _core_sinput_input_tunnel;
-    params->core_output_report_tunnel   = _core_sinput_output_tunnel;
-    params->core_deinit                 = _core_sinput_deinit;
-
-    return transport_init(params);
-}
-
-void core_sinput_task(uint64_t timestamp)
+void _core_sinput_task(uint64_t timestamp)
 {
     // The idea here is that we do not want to init
     // TinyUSB until we actually have our feature
@@ -340,8 +309,35 @@ void core_sinput_task(uint64_t timestamp)
     }
     else 
     {
-        // Run our transport task
-        if(_sinput_core_params->transport_task)
-        _sinput_core_params->transport_task(timestamp);
+        // Run our transport task if it's ready
+        if(_sinput_core_params->core_transport_task)
+        _sinput_core_params->core_transport_task(timestamp);
     }
 }
+
+
+/*------------------------------------------------*/
+// Public Functions
+
+bool core_sinput_init(core_params_s *params)
+{
+    _sinput_core_params = params;
+
+    params->core_pollrate_us = 1000;
+    params->hid_device = &_sinput_hid_device;
+
+    params->core_report_format          = CORE_REPORTFORMAT_SINPUT;
+    params->core_report_generator       = _core_sinput_get_generated_report;
+    params->core_input_report_tunnel    = _core_sinput_input_tunnel;
+    params->core_output_report_tunnel   = _core_sinput_output_tunnel;
+    params->core_deinit                 = _core_sinput_deinit;
+    params->core_task                   = _core_sinput_task;
+
+    // Set target transport type
+    params->core_transport = GAMEPAD_TRANSPORT_USB;
+
+    // Do NOT init TinyUSB yet
+    return true;
+}
+
+

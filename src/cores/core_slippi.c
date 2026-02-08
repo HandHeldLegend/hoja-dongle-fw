@@ -1,8 +1,19 @@
+#include <hoja_usb.h>
+#include <dongle.h>
+
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <string.h>
+
 #include "cores/core_slippi.h"
 
-#include <hoja_usb.h>
 #include "cores/cores.h"
 #include "transport/transport.h"
+#include "utilities/crosscore_snapshot.h"
+
+SNAPSHOT_TYPE(slippi_report, core_slippi_report_s);
+snapshot_slippi_report_t _snap_slippi;
 
 /**** GameCube Adapter HID Report Descriptor ****/
 const uint8_t _gc_hid_report_descriptor[] = {
@@ -116,9 +127,11 @@ const core_hid_device_t _slippi_hid_device = {
     .device_descriptor      = &_slippi_device_descriptor,
 };
 
+// WLAN Packets INPUT from gamepad we receive are tunneled into here
 void _core_slippi_input_tunnel(const uint8_t *data, uint16_t len)
 {
-
+    if(len!=sizeof(core_slippi_report_s)) return;
+    snapshot_slippi_report_write(&_snap_slippi, (core_slippi_report_s*)data);
 }
 
 void _core_slippi_output_tunnel(const uint8_t *data, uint16_t len)
@@ -162,7 +175,7 @@ bool _core_slippi_get_generated_report(core_report_s *out)
 
     out->data[0] = report_id;
 
-    /*GC adapter notes
+    /* GC adapter notes
     with only black USB plugged in
     - no controller, byte 1 is 0
     - controller plugged in to port 1, byte 1 is 0x10
@@ -182,30 +195,57 @@ bool _core_slippi_get_generated_report(core_report_s *out)
         return true;
     }
 
+    core_slippi_report_s *data = (core_slippi_report_s*)&out->data[2];
+
+    data->stick_x = 128;
+    data->stick_y = 128;
+    data->cstick_x = 128;
+    data->cstick_y = 128;
+
+    if(wlan_is_connected())
+    {
+        snapshot_slippi_report_read(&_snap_slippi, data);
+    }
+
     return true;
+}
+
+void _core_slippi_deinit()
+{
+
+}
+
+core_params_s *_slippi_core_params = NULL;
+
+void _core_slippi_task(uint64_t timestamp)
+{
+    if(_slippi_core_params->core_transport_task)
+    {
+        _slippi_core_params->core_transport_task(timestamp);
+    }
 }
 
 /*------------------------------------------------*/
 
+volatile bool _slippi_transport_running = false;
+
 // Public Functions
 bool core_slippi_init(core_params_s *params)
 {
-    switch(params->transport_type)
-    {
-        case GAMEPAD_TRANSPORT_USB:
-        params->core_pollrate_us = 1000;
-        params->hid_device = &_slippi_hid_device;
-        break;
-
-        // Unsupported transport methods
-        default:
-        return false;
-    }
+    _slippi_core_params = params;
     
-    params->core_report_format       = CORE_REPORTFORMAT_SLIPPI;
-    params->core_report_generator    = _core_slippi_get_generated_report;
-    params->core_output_report_tunnel = _core_slippi_output_tunnel;
-    params->core_input_report_tunnel = _core_slippi_input_tunnel;
+    params->core_pollrate_us = 1000;
+    params->hid_device = &_slippi_hid_device;
+    
+    params->core_report_format          = CORE_REPORTFORMAT_SLIPPI;
+    params->core_report_generator       = _core_slippi_get_generated_report;
+    params->core_output_report_tunnel   = _core_slippi_output_tunnel;
+    params->core_input_report_tunnel    = _core_slippi_input_tunnel;
+    params->core_deinit                 = _core_slippi_deinit;
+    params->core_task                   = _core_slippi_task;
+
+    // Set target transport type
+    params->core_transport = GAMEPAD_TRANSPORT_USB;
 
     return transport_init(params);
 }

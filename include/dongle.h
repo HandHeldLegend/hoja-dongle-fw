@@ -1,5 +1,14 @@
-#ifndef DONGLE_H
-#define DONGLE_H
+#ifndef HOJA_DONGLE_H
+#define HOJA_DONGLE_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+typedef enum
+{
+    DONGLE_STAT_DOWN,
+    DONGLE_STAT_CONNECTED,
+} hoja_dongle_status_t;
 
 typedef enum 
 {
@@ -16,6 +25,7 @@ typedef struct
     uint16_t len;
 } hoja_wlan_report_s;
 
+bool wlan_is_connected();
 void wlan_report_tunnel_out(hoja_wlan_report_s);
 
 #endif

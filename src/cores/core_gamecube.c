@@ -13,7 +13,7 @@ bool _core_gamecube_get_generated_report(core_report_s *out)
 // Public Functions
 bool core_gamecube_init(core_params_s *params)
 {
-    switch(params->transport_type)
+    switch(params->core_transport)
     {
         case GAMEPAD_TRANSPORT_JOYBUSGC:
         params->core_pollrate_us = 1000;

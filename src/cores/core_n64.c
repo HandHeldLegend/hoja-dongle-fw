@@ -18,7 +18,7 @@ bool _core_n64_get_generated_report(core_report_s *out)
 // Public Functions
 bool core_n64_init(core_params_s *params)
 {
-    switch(params->transport_type)
+    switch(params->core_transport)
     {
         // Supported transport methods
         case GAMEPAD_TRANSPORT_JOYBUS64:
