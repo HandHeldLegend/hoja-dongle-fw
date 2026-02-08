@@ -7,20 +7,23 @@
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
+#include "pico/multicore.h"
 
 #include "lwip/pbuf.h"
 #include "lwip/udp.h"
 
-struct udp_pcb* global_pcb = NULL;
+struct udp_pcb *global_tx_pcb = NULL;
+struct udp_pcb *global_rx_pcb = NULL;
+ip_addr_t global_gw;
 
 #define UDP_PORT 4444
 #define BEACON_MSG_LEN_MAX sizeof(hoja_wlan_report_s)
 #define BEACON_TARGET "255.255.255.255"
 
-#define WIFI_SSID_BASE "HOJA_WLAN_123456"
+#define WIFI_SSID_BASE "HOJA_WLAN_1234"
 #define WIFI_PASS "HOJA_1234"
 
-typedef struct 
+typedef struct
 {
     bool running;
     bool connected;
@@ -31,20 +34,127 @@ typedef struct
 
 dongle_sm_s _sm = {0};
 
+typedef struct
+{
+    bool unread;
+    uint8_t report_format;
+} dongle_init_msg_s;
+
+volatile dongle_init_msg_s _msg;
+
 // When the dongle receives a packet
 // it will pass through this function
-void _udp_receive_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *addr, u16_t port) {
-    if (p) {
-        if(p->len != sizeof(hoja_wlan_report_s)) return;
+void _udp_receive_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *addr, u16_t port)
+{
+    if (p)
+    {
+        if (p->len != sizeof(hoja_wlan_report_s))
+            return;
 
-        hoja_wlan_report_s* r = (hoja_wlan_report_s*) p->payload;
+        hoja_wlan_report_s *r = (hoja_wlan_report_s *)p->payload;
 
-        switch(r->wlan_report_id)
+        switch (r->wlan_report_id)
         {
-            case HWLAN_REPORT_HELLO:
-            if(_sm.running)
+        case HWLAN_REPORT_HELLO:
+            _msg.report_format = r->report_format;
+            _msg.unread = true;
+            break;
+
+        case HWLAN_REPORT_PASSTHROUGH:
+            core_input_report_tunnel(r);
+            break;
+        }
+
+        if (!_sm.running)
+        {
+        }
+
+        pbuf_free(p);
+    }
+}
+
+void _udp_send_tunnel(const void *report, uint16_t len)
+{
+    if (!global_tx_pcb)
+        global_tx_pcb = udp_new();
+    ip_addr_t addr;
+    ipaddr_aton(BEACON_TARGET, &addr);
+
+    cyw43_arch_lwip_begin();
+    struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, BEACON_MSG_LEN_MAX, PBUF_RAM);
+
+    uint8_t *req = (uint8_t *)p->payload;
+    memcpy(&req[0], report, len);
+
+    err_t er = udp_sendto(global_tx_pcb, p, &addr, UDP_PORT);
+    pbuf_free(p);
+    cyw43_arch_lwip_end();
+}
+
+// This function should be called by any input cores
+// when data is RECEIVED so that it can be forwarded to
+// the gamepad
+void wlan_report_tunnel_out(hoja_wlan_report_s report)
+{
+    hoja_wlan_report_s r = report;
+    _udp_send_tunnel(&r, sizeof(hoja_wlan_report_s));
+}
+
+bool wlan_is_connected()
+{
+    return _sm.connected;
+}
+
+void _wlan_network_task()
+{
+    // Initialise the Wi-Fi chip
+    if (cyw43_arch_init())
+    {
+        printf("Wi-Fi init failed\n");
+        return;
+    }
+
+    cyw43_wifi_pm(&cyw43_state, CYW43_NONE_PM);
+
+    // Enable wifi station
+    cyw43_arch_enable_sta_mode();
+
+    cyw43_arch_enable_ap_mode(WIFI_SSID_BASE, WIFI_PASS, CYW43_AUTH_WPA2_AES_PSK);
+
+#define IP(x) (x)
+    ip4_addr_t mask;
+    IP(global_gw).addr = PP_HTONL(CYW43_DEFAULT_IP_AP_ADDRESS);
+    IP(mask).addr = PP_HTONL(CYW43_DEFAULT_IP_MASK);
+#undef IP
+
+    dhcp_server_t dhcp_server;
+    dhcp_server_init(&dhcp_server, &global_gw, &mask);
+
+    // Start UDP listening
+    global_rx_pcb = udp_new();
+    udp_bind(global_rx_pcb, IP_ANY_TYPE, UDP_PORT);
+    udp_recv(global_rx_pcb, _udp_receive_cb, NULL);
+
+    for(;;)
+    {
+        sleep_ms(1);
+    }
+}
+
+int main()
+{
+    stdio_init_all();
+
+    multicore_launch_core1(_wlan_network_task);
+
+    for (;;)
+    {
+        // Init message handle on core 0
+        if (_msg.unread)
+        {
+            if (_sm.running)
             {
-                if(r->report_format != _sm.report_format)
+                if (_msg.report_format != _sm.report_format)
                 {
                     // Reboot into the correct mode here
                     // TO DO
@@ -58,10 +168,10 @@ void _udp_receive_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_ad
             }
             else
             {
-                switch(r->report_format)
+                switch (_msg.report_format)
                 {
-                    case CORE_REPORTFORMAT_SINPUT:
-                    if(core_init(CORE_REPORTFORMAT_SINPUT))
+                case CORE_REPORTFORMAT_SINPUT:
+                    if (core_init(CORE_REPORTFORMAT_SINPUT))
                     {
                         _sm.report_format = CORE_REPORTFORMAT_SINPUT;
                         _sm.running = true;
@@ -69,8 +179,8 @@ void _udp_receive_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_ad
                     }
                     break;
 
-                    case CORE_REPORTFORMAT_SLIPPI:
-                    if(core_init(CORE_REPORTFORMAT_SLIPPI))
+                case CORE_REPORTFORMAT_SLIPPI:
+                    if (core_init(CORE_REPORTFORMAT_SLIPPI))
                     {
                         _sm.report_format = CORE_REPORTFORMAT_SLIPPI;
                         _sm.running = true;
@@ -78,86 +188,14 @@ void _udp_receive_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_ad
                     }
                     break;
 
-                    // Do nothing
-                    default:
-                    return;
+                // Do nothing
+                default:
+                    break;
                 }
             }
-            break;
-
-            case HWLAN_REPORT_PASSTHROUGH:
-            core_input_report_tunnel(r);
-            break;
+            _msg.unread = false;
         }
 
-        if(!_sm.running)
-        {
-
-        }
-        
-        pbuf_free(p);
-    }
-}
-
-void _udp_send_tunnel(const void *report, uint16_t len)
-{
-    if(!global_pcb) global_pcb = udp_new();
-    ip_addr_t addr;
-    ipaddr_aton(BEACON_TARGET, &addr);
-    cyw43_arch_lwip_begin();
-    struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, BEACON_MSG_LEN_MAX, PBUF_RAM);
-    uint8_t *req = (uint8_t *)p->payload;
-    //memset(req, 0, BEACON_MSG_LEN_MAX);
-    memcpy(&req[0], report, len);
-    err_t er = udp_sendto(global_pcb, p, &addr, UDP_PORT);
-    pbuf_free(p);
-    cyw43_arch_lwip_end();
-}
-
-// This function should be called by any input cores
-// when data is RECEIVED so that it can be forwarded to
-// the gamepad
-void wlan_report_tunnel_out(hoja_wlan_report_s report)
-{
-
-}
-
-void wlan_report_tunnel_in(const uint8_t *data, uint16_t len)
-{
-
-}
-
-bool wlan_is_connected()
-{
-    return _sm.connected;
-}
-
-int main()
-{
-    stdio_init_all();
-
-    // Initialise the Wi-Fi chip
-    if (cyw43_arch_init()) {
-        printf("Wi-Fi init failed\n");
-        return -1;
-    }
-
-    // Enable wifi station
-    cyw43_arch_enable_sta_mode();
-
-    printf("Connecting to Wi-Fi...\n");
-    if (cyw43_arch_wifi_connect_timeout_ms("Your Wi-Fi SSID", "Your Wi-Fi Password", CYW43_AUTH_WPA2_AES_PSK, 30000)) {
-        printf("failed to connect.\n");
-        return 1;
-    } else {
-        printf("Connected.\n");
-        // Read the ip address in a human readable way
-        uint8_t *ip_address = (uint8_t*)&(cyw43_state.netif[0].ip_addr.addr);
-        printf("IP address %d.%d.%d.%d\n", ip_address[0], ip_address[1], ip_address[2], ip_address[3]);
-    }
-
-    while (true) {
-        printf("Hello, world!\n");
-        sleep_ms(1000);
+        core_task(time_us_64());
     }
 }

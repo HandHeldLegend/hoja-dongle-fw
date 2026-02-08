@@ -12,7 +12,12 @@
 #include "transport/transport.h"
 #include "utilities/crosscore_snapshot.h"
 
-SNAPSHOT_TYPE(slippi_report, core_slippi_report_s);
+typedef struct
+{
+    uint8_t report[37];
+} slippi_report_s;
+
+SNAPSHOT_TYPE(slippi_report, slippi_report_s);
 snapshot_slippi_report_t _snap_slippi;
 
 /**** GameCube Adapter HID Report Descriptor ****/
@@ -130,29 +135,27 @@ const core_hid_device_t _slippi_hid_device = {
 // WLAN Packets INPUT from gamepad we receive are tunneled into here
 void _core_slippi_input_tunnel(const uint8_t *data, uint16_t len)
 {
-    if(len!=sizeof(core_slippi_report_s)) return;
-    snapshot_slippi_report_write(&_snap_slippi, (core_slippi_report_s*)data);
+    if(len!=37) return;
+    snapshot_slippi_report_write(&_snap_slippi, (slippi_report_s*)data);
 }
 
 void _core_slippi_output_tunnel(const uint8_t *data, uint16_t len)
 {
     if(len<2) return;
 
-    uint8_t report_id = data[0];
-
-    switch(report_id)
+    switch(data[0])
     {
         // Rumble Event
         case 0x11:
-        uint8_t strength = (data[1] & 0x1) ? 255 : 0;
-        uint8_t brake = (data[1] & 0x2) ? 255 : 0;
+        hoja_wlan_report_s r = {
+            .len = len,
+            .report_format = CORE_REPORTFORMAT_SLIPPI,
+            .wlan_report_id = HWLAN_REPORT_PASSTHROUGH
+        };
+        memcpy(r.data, data, len);
 
-        tp_evt_s rumble = {.evt_ermrumble = {
-            .left=strength, .right=strength,
-            .leftbrake=brake, .rightbrake=brake
-        }};
-
-        transport_evt_cb(rumble);
+        // SEND this data to our gamepad
+        wlan_report_tunnel_out(r);
         break;
 
         // Init adapter 
@@ -167,20 +170,20 @@ void _core_slippi_output_tunnel(const uint8_t *data, uint16_t len)
 
 bool _core_slippi_get_generated_report(core_report_s *out)
 {
-    const uint8_t report_id = 0x21;
     static bool _slippi_first = false;
 
     out->reportformat = CORE_REPORTFORMAT_SLIPPI;
     out->size = 37;
 
-    out->data[0] = report_id;
+    out->data[0] = 0x21;
 
     /* GC adapter notes
     with only black USB plugged in
     - no controller, byte 1 is 0
     - controller plugged in to port 1, byte 1 is 0x10
     - controller plugged in port 2, byte 10 is 0x10
-    with both USB plugged in
+
+    with both USBs plugged in
     - no controller, byte 1 is 0x04
     - controller plugged in to port 1, byte is 0x14 */
     out->data[1]  = 0x14;
@@ -195,18 +198,10 @@ bool _core_slippi_get_generated_report(core_report_s *out)
         return true;
     }
 
-    core_slippi_report_s *data = (core_slippi_report_s*)&out->data[2];
-
-    data->stick_x = 128;
-    data->stick_y = 128;
-    data->cstick_x = 128;
-    data->cstick_y = 128;
-
     if(wlan_is_connected())
     {
-        snapshot_slippi_report_read(&_snap_slippi, data);
+        snapshot_slippi_report_read(&_snap_slippi, (slippi_report_s*)out->data);
     }
-
     return true;
 }
 

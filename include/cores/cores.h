@@ -70,7 +70,7 @@ bool core_get_generated_report(core_report_s *out);
 void core_report_tunnel_cb(const uint8_t *data, uint16_t len);
 
 void core_input_report_tunnel(hoja_wlan_report_s *report);
-
+void core_task(uint64_t timestamp);
 void core_deinit();
 bool core_init(core_reportformat_t format);
 

@@ -103,23 +103,10 @@ bool tud_slippi_n_report(uint8_t instance, uint8_t report_id, void const *report
     // claim endpoint
     TU_VERIFY(usbd_edpt_claim(rhport, p_hid->ep_in));
 
-    // prepare data
-    if (report_id)
-    {
-        len = tu_min16(len, CFG_TUD_GC_TX_BUFSIZE - 1);
+    p_hid->epin_buf[0] = report_id;
+    memcpy(&p_hid->epin_buf[1], report, CFG_TUD_GC_TX_BUFSIZE-1);
 
-        p_hid->epin_buf[0] = report_id;
-        memcpy(p_hid->epin_buf + 1, report, len);
-        len++;
-    }
-    else
-    {
-        // If report id = 0, skip ID field
-        len = tu_min16(len, CFG_TUD_GC_TX_BUFSIZE);
-        memcpy(p_hid->epin_buf, report, len);
-    }
-
-    return usbd_edpt_xfer(rhport, p_hid->ep_in, p_hid->epin_buf, len);
+    return usbd_edpt_xfer(rhport, p_hid->ep_in, p_hid->epin_buf, CFG_TUD_GC_TX_BUFSIZE);
 }
 
 bool tud_slippi_report(uint8_t report_id, void const *report, uint16_t len)
@@ -154,11 +141,11 @@ void slippid_init(void)
 uint16_t slippid_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     // Do not open if we aren't in Slippi reporting mode
-    if (_usb_core_params)
-    {
-        if (_usb_core_params->core_report_format != CORE_REPORTFORMAT_SINPUT)
-            return 0;
-    }
+    //if (_usb_core_params)
+    //{
+    //    if (_usb_core_params->core_report_format != CORE_REPORTFORMAT_SINPUT)
+    //        return 0;
+    //}
 
     // len = interface + hid + n*endpoints
     uint16_t const drv_len = (uint16_t)(sizeof(tusb_desc_interface_t) + sizeof(tusb_hid_descriptor_hid_t) +
@@ -1073,12 +1060,10 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
     }
 }
 
-static bool sofen = false;
 void tud_mount_cb()
 {
     tud_sof_cb_enable(false);
     tud_sof_cb_enable(true);
-    sofen = true;
 }
 
 void tud_sof_cb(uint32_t frame_count_ext) 
@@ -1176,10 +1161,7 @@ bool transport_usb_init(core_params_s *params)
 
 void transport_usb_task(uint64_t timestamp)
 {
-    
     tud_task();
-
-    if(!sofen) return;
 
     if (!_usb_ready && _usb_hal_ready_cb)
     {
@@ -1191,7 +1173,6 @@ void transport_usb_task(uint64_t timestamp)
         _usb_sendit = false;
         _usb_ready = false;
     
-        
         if(core_get_generated_report(&_core_report))
         {
             if(_usb_hal_report_cb)

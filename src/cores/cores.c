@@ -58,8 +58,13 @@ bool core_get_generated_report(core_report_s *out)
 
 void core_input_report_tunnel(hoja_wlan_report_s *report)
 {
+    // Only if we have a report tunnel
     if(!_core_params.core_input_report_tunnel) return;
+
+    // Only pass through packets with a matching report format
     if(report->report_format != _core_params.core_report_format) return;
+
+    // Call our report tunnel with the data
     _core_params.core_input_report_tunnel(report->data, report->len);
 }
 
@@ -86,6 +91,14 @@ bool core_init(core_reportformat_t format)
 
         default:
         return false;
+    }
+}
+
+void core_task(uint64_t timestamp)
+{
+    if(_core_params.core_task)
+    {
+        _core_params.core_task(timestamp);
     }
 }
 
