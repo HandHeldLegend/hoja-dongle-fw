@@ -2,10 +2,20 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dongle.h>
 #include "utilities/interval.h"
 
 #include "cores/cores.h"
 #include "transport/transport.h"
+#include "utilities/crosscore_snapshot.h"
+
+typedef struct
+{
+    uint8_t report[64];
+} core_sinput_report_s;
+
+SNAPSHOT_TYPE(sinput_report, core_sinput_report_s);
+snapshot_sinput_report_t _snap_sinput;
 
 #define SINPUT_VID 0x2E8A  // Raspberry Pi
 #define SINPUT_PID  0x10C6 // Hoja Gamepad
@@ -164,17 +174,87 @@ const uint8_t _sinput_configuration_descriptor[SINPUT_CONFIG_DESCRIPTOR_LEN] = {
 
 volatile uint8_t _si_current_command = 0;
 
-void _core_sinput_report_tunnel_cb(const uint8_t *data, uint16_t len)
+// OUTPUT reports from HOST we receive are tunneled into here
+void _core_sinput_output_tunnel(const uint8_t *data, uint16_t len)
 {
-    if(len<2) return;
+    if(len!=SINPUT_REPORT_LEN_INPUT) return;
 
+    // Report ID
+    if(data[0] == REPORT_ID_SINPUT_OUTPUT_CMDDAT)
+    {
+        // Command ID
+        switch(data[1])
+        {
+            case SINPUT_COMMAND_HAPTIC:
+            case SINPUT_COMMAND_PLAYERLED:
+            hoja_wlan_report_s r = {
+                .len = len,
+                .report_format = CORE_REPORTFORMAT_SINPUT,
+                .wlan_report_id = HWLAN_REPORT_PASSTHROUGH
+            };
+            memcpy(r.data, data, len);
+            
+            // SEND this data to our gamepad
+            wlan_report_tunnel_out(r);
+            break;
 
+            case SINPUT_COMMAND_FEATURES:
+            _si_current_command = SINPUT_COMMAND_FEATURES;
+            break;
+        }
+    }
+}
+
+static inline bool _sinput_compare_features(const uint8_t *in)
+{
+    for(uint16_t i = 0; i < SINPUT_REPORT_LEN_COMMAND; i++)
+    {
+        // For any byte that doesn't match, we will return false
+        if(in[i] != _sinput_features_report_data[i]) return false;
+    }
+
+    return true;
+}
+
+// WLAN Packets INPUT from gamepad we receive are tunneled into here
+void _core_sinput_input_tunnel(const uint8_t *data, uint16_t len)
+{
+    if(len!=SINPUT_REPORT_LEN_INPUT) return;
+
+    switch(data[0])
+    {
+        // Standard input report data
+        case REPORT_ID_SINPUT_INPUT:
+        snapshot_sinput_report_write(&_snap_sinput, (core_sinput_report_s*)data);
+        break;
+
+        // Command reply data
+        case REPORT_ID_SINPUT_INPUT_CMDDAT:
+        uint8_t command = data[1];
+        if(command == SINPUT_COMMAND_FEATURES)
+        {
+            if(_sinput_features_report_got)
+            {
+                // If we return true, proceed, otherwise reboot
+                // because need to re-init
+                if(!_sinput_compare_features(data))
+                {
+                    // REBOOT HERE
+                }
+            }
+
+            // Any other case simply respond with the same features data
+            memcpy(_sinput_features_report_data, data, SINPUT_REPORT_LEN_INPUT);
+            _sinput_features_report_got = true;
+        }
+        break;
+    }
 }
 
 bool _core_sinput_get_generated_report(core_report_s *out)
 {
     out->reportformat=CORE_REPORTFORMAT_SINPUT;
-    out->size=64; // 64 bytes including our report ID
+    out->size=SINPUT_REPORT_LEN_INPUT; // 64 bytes including our report ID
 
     // Handle features request response
     if(_si_current_command==SINPUT_COMMAND_FEATURES)
@@ -187,8 +267,7 @@ bool _core_sinput_get_generated_report(core_report_s *out)
     }
     else 
     {
-        // Forward our most up to date input data
-        // TO DO
+        snapshot_sinput_report_read(&_snap_sinput, (core_sinput_report_s*)out->data);
     }
 
     return true;
@@ -205,13 +284,15 @@ const core_hid_device_t _sinput_hid_device = {
     .vid = SINPUT_VID,
 };
 
-/*------------------------------------------------*/
 
-// Public Functions
-void core_sinput_deinit()
+void _core_sinput_deinit()
 {
 
 }
+
+
+/*------------------------------------------------*/
+// Public Functions
 
 volatile bool _sinput_transport_running = false;
 core_params_s *_sinput_core_params = NULL;
@@ -219,8 +300,6 @@ core_params_s *_sinput_core_params = NULL;
 bool core_sinput_init(core_params_s *params)
 {
     _sinput_core_params = params;
-
-    params->transport_dev_mac[5] += 2;
     
     switch(params->transport_type)
     {
@@ -235,9 +314,11 @@ bool core_sinput_init(core_params_s *params)
 
     params->hid_device = &_sinput_hid_device;
 
-    params->core_report_format    = CORE_REPORTFORMAT_SINPUT;
-    params->core_report_generator = _core_sinput_get_generated_report;
-    params->core_report_tunnel    = _core_sinput_report_tunnel_cb;
+    params->core_report_format          = CORE_REPORTFORMAT_SINPUT;
+    params->core_report_generator       = _core_sinput_get_generated_report;
+    params->core_input_report_tunnel    = _core_sinput_input_tunnel;
+    params->core_output_report_tunnel   = _core_sinput_output_tunnel;
+    params->core_deinit                 = _core_sinput_deinit;
 
     return transport_init(params);
 }
@@ -262,47 +343,5 @@ void core_sinput_task(uint64_t timestamp)
         // Run our transport task
         if(_sinput_core_params->transport_task)
         _sinput_core_params->transport_task(timestamp);
-    }
-}
-
-bool _sinput_compare_features(const uint8_t *in)
-{
-    for(uint16_t i = 0; i < SINPUT_REPORT_LEN_COMMAND; i++)
-    {
-        // For any byte that doesn't match, we will return false
-        if(in[i] != _sinput_features_report_data[i]) return false;
-    }
-
-    return true;
-}
-
-// WLAN Packets INPUT from gamepad we receive are tunneled into here
-void core_sinput_input_tunnel(const uint8_t *data, uint16_t len)
-{
-    switch(data[0])
-    {
-        // Standard input report data
-        case REPORT_ID_SINPUT_INPUT:
-        break;
-
-        // Command reply data
-        case REPORT_ID_SINPUT_INPUT_CMDDAT:
-        uint8_t command = data[1];
-        if(command == SINPUT_COMMAND_FEATURES && len==SINPUT_REPORT_LEN_INPUT)
-        {
-            if(_sinput_features_report_got)
-            {
-                // If we return true, proceed, otherwise reboot
-                // because need to re-init
-                if(!_sinput_compare_features(data))
-                {
-                    // REBOOT HERE
-                }
-            }
-
-            memcpy(_sinput_features_report_data, data, SINPUT_REPORT_LEN_INPUT);
-            _sinput_features_report_got = true;
-        }
-        break;
     }
 }

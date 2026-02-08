@@ -116,7 +116,12 @@ const core_hid_device_t _slippi_hid_device = {
     .device_descriptor      = &_slippi_device_descriptor,
 };
 
-void _core_slippi_report_tunnel_cb(const uint8_t *data, uint16_t len)
+void _core_slippi_input_tunnel(const uint8_t *data, uint16_t len)
+{
+
+}
+
+void _core_slippi_output_tunnel(const uint8_t *data, uint16_t len)
 {
     if(len<2) return;
 
@@ -199,7 +204,8 @@ bool core_slippi_init(core_params_s *params)
     
     params->core_report_format       = CORE_REPORTFORMAT_SLIPPI;
     params->core_report_generator    = _core_slippi_get_generated_report;
-    params->core_report_tunnel       = _core_slippi_report_tunnel_cb;
+    params->core_output_report_tunnel = _core_slippi_output_tunnel;
+    params->core_input_report_tunnel = _core_slippi_input_tunnel;
 
     return transport_init(params);
 }

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <dhcpserver.h>
+#include <dongle.h>
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
@@ -9,13 +10,6 @@
 
 struct udp_pcb* global_pcb = NULL;
 
-typedef struct 
-{
-    uint8_t wlan_report_id;
-    uint8_t report_format;
-    uint8_t data[64];
-    uint16_t len;
-} hoja_wlan_report_s;
 
 #define UDP_PORT 4444
 #define BEACON_MSG_LEN_MAX sizeof(hoja_wlan_report_s)
@@ -24,12 +18,7 @@ typedef struct
 #define WIFI_SSID_BASE "HOJA_WLAN_123456"
 #define WIFI_PASS "HOJA_1234"
 
-typedef enum 
-{
-    HWLAN_REPORT_PASSTHROUGH = 0x01,
-    HWLAN_REPORT_TRANSPORT = 0x02,
-    HWLAN_REPORT_HELLO = 0x03,
-} hoja_wlan_report_t;
+
 
 typedef struct 
 {
@@ -47,7 +36,7 @@ void _udp_receive_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_ad
     if (p) {
         if(p->len != sizeof(hoja_wlan_report_s)) return;
 
-        hoja_wlan_report_s* r = (uint8_t*) p->payload;
+        hoja_wlan_report_s* r = (hoja_wlan_report_s*) p->payload;
 
         switch(r->wlan_report_id)
         {
@@ -85,14 +74,14 @@ void _udp_send_tunnel(const void *report, uint16_t len)
 // This function should be called by any input cores
 // when data is RECEIVED so that it can be forwarded to
 // the gamepad
-void wlan_report_tunnel_out(const uint8_t *data, uint16_t len)
+void wlan_report_tunnel_out(hoja_wlan_report_s report)
 {
 
 }
 
 void wlan_report_tunnel_in(const uint8_t *data, uint16_t len)
 {
-    
+
 }
 
 int main()

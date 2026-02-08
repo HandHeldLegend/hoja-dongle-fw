@@ -16,7 +16,9 @@ const core_params_s _core_params_default = {
     .core_report_format = CORE_REPORTFORMAT_UNDEFINED,
     .core_pollrate_us = 8000,
     .core_report_generator = NULL,
-    .core_report_tunnel = NULL,
+    .core_input_report_tunnel = NULL,
+    .core_output_report_tunnel = NULL,
+    .core_deinit = NULL,
 
     .transport_type = GAMEPAD_TRANSPORT_UNDEFINED,
     .transport_dev_mac = {0,0,0,0,0,0},
@@ -30,7 +32,9 @@ core_params_s _core_params = {
     .core_report_format = CORE_REPORTFORMAT_UNDEFINED,
     .core_pollrate_us = 8000,
     .core_report_generator = NULL,
-    .core_report_tunnel = NULL,
+    .core_input_report_tunnel = NULL,
+    .core_output_report_tunnel = NULL,
+    .core_deinit = NULL,
 
     .transport_type = GAMEPAD_TRANSPORT_UNDEFINED,
     .transport_dev_mac = {0,0,0,0,0,0},
@@ -56,10 +60,10 @@ bool core_get_generated_report(core_report_s *out)
     return _core_params.core_report_generator(out);
 }
 
-void core_report_tunnel_cb(const uint8_t *data, uint16_t len)
+void core_input_report_tunnel(const uint8_t *data, uint16_t len)
 {
-    if(!_core_params.core_report_tunnel) return;
-    _core_params.core_report_tunnel(data, len);
+    if(!_core_params.core_input_report_tunnel) return;
+    _core_params.core_input_report_tunnel(data, len);
 }
 
 core_params_s* core_current_params()

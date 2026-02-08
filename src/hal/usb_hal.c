@@ -1066,9 +1066,9 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
 {
     if (!report_id && report_type == HID_REPORT_TYPE_OUTPUT)
     {
-        if (_usb_core_params->core_report_tunnel)
+        if (_usb_core_params->core_output_report_tunnel)
         {
-            _usb_core_params->core_report_tunnel(buffer, bufsize);
+            _usb_core_params->core_output_report_tunnel(buffer, bufsize);
         }
     }
 }

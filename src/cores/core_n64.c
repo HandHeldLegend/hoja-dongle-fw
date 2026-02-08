@@ -36,7 +36,6 @@ bool core_n64_init(core_params_s *params)
     
     params->core_report_format      = CORE_REPORTFORMAT_N64;
     params->core_report_generator   = _core_n64_get_generated_report;
-    params->core_report_tunnel      = NULL;
 
     return transport_init(params);
 }
