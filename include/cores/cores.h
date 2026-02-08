@@ -42,6 +42,11 @@ typedef void (*core_report_tunnel_t)(const uint8_t *data, uint16_t len);
 typedef void (*core_transport_task_t)(uint64_t timestamp);
 typedef core_hid_device_t* (*core_get_hid_device_t)(void);
 
+typedef void(*core_input_report_tunnel_t)(const uint8_t *data, uint16_t len);
+typedef void(*core_output_report_tunnel_t)(const uint8_t *data, uint16_t len);
+typedef void(*core_task_t)(uint64_t timestamp);
+typedef void(*core_deinit_t)(void);
+
 typedef struct 
 {
     uint8_t                 transport_type;

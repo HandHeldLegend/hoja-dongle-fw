@@ -42,6 +42,7 @@ file(GLOB_RECURSE UTILS_C "${CMAKE_CURRENT_LIST_DIR}/src/utilities/*.c")
 
 add_executable(hoja-dongle-fw 
     src/hoja-dongle-fw.c 
+    src/dhcpserver.c 
     ${HAL_C} 
     ${CORES_C} 
     ${TRANSPORTS_C} 

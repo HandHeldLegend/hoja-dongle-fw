@@ -2,27 +2,30 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include "utilities/interval.h"
 
 #include "cores/cores.h"
 #include "transport/transport.h"
 
-#if defined(HOJA_USB_VID)
-#define SINPUT_VID  HOJA_USB_VID
-#else
-#define SINPUT_VID 0x2E8A // Raspberry Pi
-#endif
-
-#if defined(HOJA_USB_PID)
-#define SINPUT_PID  HOJA_USB_PID
-#else
+#define SINPUT_VID 0x2E8A  // Raspberry Pi
 #define SINPUT_PID  0x10C6 // Hoja Gamepad
-#endif
-
-#if defined(HOJA_DEVICE_NAME)
-#define SINPUT_NAME HOJA_DEVICE_NAME
-#else
 #define SINPUT_NAME "SInput Gamepad"
-#endif
+
+#define REPORT_ID_SINPUT_INPUT  0x01 // Input Report ID, used for SINPUT input data
+#define REPORT_ID_SINPUT_INPUT_CMDDAT  0x02 // Input report ID for command replies
+#define REPORT_ID_SINPUT_OUTPUT_CMDDAT 0x03 // Output Haptic Report ID, used for haptics and commands
+
+#define SINPUT_COMMAND_HAPTIC       0x01
+#define SINPUT_COMMAND_FEATURES     0x02
+#define SINPUT_COMMAND_PLAYERLED    0x03
+
+#define SINPUT_REPORT_LEN_COMMAND 48 
+#define SINPUT_REPORT_LEN_INPUT   64
+
+// When we receive our features report data
+// we can ready this flag
+bool _sinput_features_report_got = false;
+uint8_t _sinput_features_report_data[SINPUT_REPORT_LEN_INPUT] = {0};
 
 const hoja_usb_device_descriptor_t _sinput_device_descriptor = {
     .bLength = sizeof(hoja_usb_device_descriptor_t),
@@ -157,382 +160,36 @@ const uint8_t _sinput_configuration_descriptor[SINPUT_CONFIG_DESCRIPTOR_LEN] = {
 
 #define SINPUT_CLAMP(val, min, max) ((val) < (min) ? (min) : ((val) > (max) ? (max) : (val)))
 
-#define REPORT_ID_SINPUT_INPUT  0x01 // Input Report ID, used for SINPUT input data
-#define REPORT_ID_SINPUT_INPUT_CMDDAT  0x02 // Input report ID for command replies
-#define REPORT_ID_SINPUT_OUTPUT_CMDDAT 0x03 // Output Haptic Report ID, used for haptics and commands
 
-#define SINPUT_COMMAND_HAPTIC       0x01
-#define SINPUT_COMMAND_FEATURES     0x02
-#define SINPUT_COMMAND_PLAYERLED    0x03
-
-#define SINPUT_REPORT_LEN_COMMAND 48 
-#define SINPUT_REPORT_LEN_INPUT   64
-
-#pragma pack(push, 1) // Ensure byte alignment
-// Input report (Report ID: 1)
-typedef struct
-{
-    uint8_t plug_status;    // Plug Status Format
-    uint8_t charge_percent; // 0-100
-
-    union {
-        struct {
-            uint8_t button_south : 1;
-            uint8_t button_east  : 1;
-            uint8_t button_west  : 1;
-            uint8_t button_north : 1;
-            uint8_t dpad_up    : 1;
-            uint8_t dpad_down  : 1;
-            uint8_t dpad_left  : 1;
-            uint8_t dpad_right : 1;
-        };
-        uint8_t buttons_1;
-    };
-
-    union
-    {
-        struct
-        {
-            uint8_t button_stick_left : 1;
-            uint8_t button_stick_right : 1;
-            uint8_t button_l_shoulder : 1;
-            uint8_t button_r_shoulder : 1;
-            uint8_t button_l_trigger : 1;
-            uint8_t button_r_trigger : 1;
-            uint8_t button_l_paddle_1 : 1;
-            uint8_t button_r_paddle_1 : 1;
-        };
-        uint8_t buttons_2;
-    };
-
-    union
-    {
-        struct
-        {
-            uint8_t button_start  : 1;
-            uint8_t button_select : 1;
-            uint8_t button_guide  : 1;
-            uint8_t button_share  : 1;
-            uint8_t button_l_paddle_2 : 1;
-            uint8_t button_r_paddle_2 : 1;
-            uint8_t button_l_touchpad : 1;
-            uint8_t button_r_touchpad : 1;
-        };
-        uint8_t buttons_3;
-    };
-
-    union
-    {
-        struct
-        {
-            uint8_t button_power   : 1;
-            uint8_t button_misc_4  : 1;
-            uint8_t button_misc_5  : 1;
-            uint8_t button_misc_6  : 1;
-            
-            // Misc 7 through 10 is unused by
-            // SDL currently!
-            uint8_t button_misc_7  : 1; 
-            uint8_t button_misc_8  : 1;
-            uint8_t button_misc_9  : 1;
-            uint8_t button_misc_10 : 1;
-        };
-        uint8_t buttons_4;
-    };
-
-    int16_t left_x;             // Left stick X
-    int16_t left_y;             // Left stick Y
-    int16_t right_x;            // Right stick X
-    int16_t right_y;            // Right stick Y
-    int16_t trigger_l;          // Left trigger
-    int16_t trigger_r;          // Right trigger
-
-    uint32_t imu_timestamp_us;  // IMU Timestamp
-    int16_t accel_x;            // Accelerometer X
-    int16_t accel_y;            // Accelerometer Y
-    int16_t accel_z;            // Accelerometer Z
-    int16_t gyro_x;             // Gyroscope X
-    int16_t gyro_y;             // Gyroscope Y
-    int16_t gyro_z;             // Gyroscope Z
-
-    int16_t touchpad_1_x;       // Touchpad/trackpad
-    int16_t touchpad_1_y;
-    int16_t touchpad_1_pressure;
-
-    int16_t touchpad_2_x;
-    int16_t touchpad_2_y;
-    int16_t touchpad_2_pressure;
-
-    uint8_t reserved_bulk[17];  // Reserved for command data
-} sinput_input_s;
-#pragma pack(pop)
-
-#define SINPUT_INPUT_SIZE sizeof(sinput_input_s)
-
-#pragma pack(push, 1) // Ensure byte alignment
-typedef struct 
-{
-    uint8_t type;
-
-    union 
-    {
-        // Frequency Amplitude pairs
-        struct 
-        {
-            struct
-            {
-                uint16_t frequency_1;
-                uint16_t amplitude_1;
-                uint16_t frequency_2;
-                uint16_t amplitude_2;
-            } left;
-
-            struct
-            {
-                uint16_t frequency_1;
-                uint16_t amplitude_1;
-                uint16_t frequency_2;
-                uint16_t amplitude_2;
-            } right;
-            
-        } type_1;
-
-        // Basic ERM simulation model
-        struct 
-        {
-            struct 
-            {
-                uint8_t amplitude;
-                bool    brake;
-            } left;
-
-            struct 
-            {
-                uint8_t amplitude;
-                bool    brake;
-            } right;
-            
-        } type_2; 
-    };
-} sinput_haptic_s;
-#pragma pack(pop)
-
-#define SINPUT_HAPTIC_SIZE sizeof(sinput_haptic_s)
-
-#pragma pack(push, 1) // Ensure byte alignment
-typedef union
-{
-    struct
-    {
-        uint8_t rumble_supported : 1;
-        uint8_t player_leds_supported : 1;
-        uint8_t accelerometer_supported : 1;
-        uint8_t gyroscope_supported : 1;
-        uint8_t left_analog_stick_supported : 1;
-        uint8_t right_analog_stick_supported : 1;
-        uint8_t left_analog_trigger_supported : 1;
-        uint8_t right_analog_trigger_supported : 1;
-    };
-    uint8_t value;
-} sinput_featureflags_1_u;
-#pragma pack(pop)
-
-#pragma pack(push, 1) // Ensure byte alignment
-typedef union
-{
-    struct
-    {
-        uint8_t left_touchpad_supported  : 1;
-        uint8_t right_touchpad_supported : 1;
-        uint8_t reserved : 6;
-    };
-    uint8_t value;
-} sinput_featureflags_2_u;
-#pragma pack(pop)
-
-#define SINPUT_MASK_SEWN 0x0F
-#define SINPUT_MASK_DPAD 0xF0
-
-// Bumpers (L1, R1)
-#define SINPUT_MASK_BUMPERS 0x0C
-
-// Triggers (L2, R2)
-#define SINPUT_MASK_TRIGGERS 0x30
-
-// Start + Select
-#define SINPUT_MASK_STARTSELECT 0x03
-
-// Home
-#define SINPUT_MASK_HOME 0x04
-
-// Capture
-#define SINPUT_MASK_CAPTURE 0x08
-
-// Stick Click: L3
-#define SINPUT_MASK_LSTICK 0x01
-
-// Stick Click: R3
-#define SINPUT_MASK_RSTICK 0x02
-
-// Upper Grips (L4, R4)
-#define SINPUT_MASK_UPPERGRIPS 0xC0
-
-// Lower Grips (L5, R5)
-#define SINPUT_MASK_LOWERGRIPS 0x30
-
-// Power
-#define SINPUT_MASK_POWER 0x01
-
-#define SINPUT_MASK_0 ( SINPUT_MASK_SEWN | SINPUT_MASK_DPAD )
-#define SINPUT_MASK_1 ( SINPUT_MASK_LSTICK | SINPUT_MASK_RSTICK | SINPUT_MASK_TRIGGERS | SINPUT_MASK_BUMPERS | SINPUT_MASK_UPPERGRIPS )
-#define SINPUT_MASK_2 ( SINPUT_MASK_STARTSELECT | SINPUT_MASK_HOME | SINPUT_MASK_CAPTURE | SINPUT_MASK_LOWERGRIPS )
-#define SINPUT_MASK_3 ( SINPUT_MASK_POWER )
-
-void _si_generate_input_masks(uint8_t *masks)
-{
-
-}
-
-uint16_t _sinput_report_interval_us = 1000;
-
-void _si_cmd_haptics(const uint8_t *data)
-{
-    haptic_packet_s packet = {0};
-
-    sinput_haptic_s haptic = {0};
-
-    memcpy(&haptic, data, sizeof(sinput_haptic_s));
-
-    switch (haptic.type)
-    {
-        default:
-        break;
-
-        case 1:
-            // Haptic type
-        break;
-
-        case 2:
-            // ERM type
-        break;
-    } 
-}
-
-void _si_generate_features(uint8_t *buffer)
-{
-    sinput_featureflags_1_u feature_flags = {0};
-
-    // Gamepad Type (Derived from SDL)
-    /* 
-    typedef enum SDL_GamepadType
-    {
-        SDL_GAMEPAD_TYPE_UNKNOWN = 0,
-        SDL_GAMEPAD_TYPE_STANDARD,
-        SDL_GAMEPAD_TYPE_XBOX360,
-        SDL_GAMEPAD_TYPE_XBOXONE,
-        SDL_GAMEPAD_TYPE_PS3,
-        SDL_GAMEPAD_TYPE_PS4,
-        SDL_GAMEPAD_TYPE_PS5,
-        SDL_GAMEPAD_TYPE_NINTENDO_SINPUT_PRO,
-        SDL_GAMEPAD_TYPE_NINTENDO_SINPUT_JOYCON_LEFT,
-        SDL_GAMEPAD_TYPE_NINTENDO_SINPUT_JOYCON_RIGHT,
-        SDL_GAMEPAD_TYPE_NINTENDO_SINPUT_JOYCON_PAIR,
-        SDL_GAMEPAD_TYPE_GAMECUBE,
-        SDL_GAMEPAD_TYPE_COUNT
-    } SDL_GamepadType;
-     */
-    #if defined(HOJA_SINPUT_GAMEPAD_TYPE)
-    buffer[4] = HOJA_SINPUT_GAMEPAD_TYPE;
-    #else 
-    buffer[4] = 0;
-    #endif
-
-    uint8_t sub_type = 0;
-    uint8_t face_style = 0;
-
-    #if defined(HOJA_SINPUT_GAMEPAD_SUBTYPE)
-    sub_type = HOJA_SINPUT_GAMEPAD_SUBTYPE & 0x1F; // Gamepad Sub-type (leave as zero in most cases)
-    #endif
-
-    #if defined(HOJA_SINPUT_GAMEPAD_FACESTYLE)
-    face_style = HOJA_SINPUT_GAMEPAD_FACESTYLE & 0x7;
-    #endif 
-
-    buffer[5] = (face_style << 5) | sub_type;
-
-    uint16_t polling_rate_us = 1000;
-
-    //switch(hoja_get_status().gamepad_method)
-    //{
-    //    case GAMEPAD_METHOD_BLUETOOTH:
-    //    polling_rate_us = 8000;
-    //    break;
-    //    case GAMEPAD_METHOD_WLAN:
-    //    polling_rate_us = 2000;
-    //    break;
-    //}
-        
-    memcpy(&buffer[6], &polling_rate_us, sizeof(polling_rate_us));
-
-    _si_generate_input_masks(&buffer[12]);
-
-    buffer[16] = 0; // Touchpad count
-    buffer[17] = 0; // Touchpad finger count
-
-    core_params_s *params = core_current_params();
-
-    // 18-23 is the MAC
-    memcpy(&buffer[18], params->transport_dev_mac, 6);
-}
-
-int16_t _sinput_scale_trigger(uint16_t val)
-{
-    if (val > 4095) val = 4095; // Clamp just in case
-
-    // Scale: map [0, 4095] → [INT16_MIN, INT16_MAX]
-    // The range of INT16 is 65535, so multiply first to preserve precision
-    return (int16_t)(((int32_t)val * 65535) / 4095 + INT16_MIN);
-}
-
-int16_t _sinput_scale_axis(int16_t input_axis)
-{   
-    return SINPUT_CLAMP(input_axis * 16, INT16_MIN, INT16_MAX);
-}
 
 volatile uint8_t _si_current_command = 0;
-uint8_t _si_response_report[64] = {0};
 
 void _core_sinput_report_tunnel_cb(const uint8_t *data, uint16_t len)
 {
     if(len<2) return;
 
-    switch(data[0])
-    {
-        default:
-        return;
 
-        case SINPUT_COMMAND_HAPTIC:
-        _si_cmd_haptics(&(data[1]));
-        break;
-
-        case SINPUT_COMMAND_FEATURES:
-        _si_current_command = SINPUT_COMMAND_FEATURES;
-        break;
-
-        case SINPUT_COMMAND_PLAYERLED:
-        tp_evt_s evt = {
-            .evt=TP_EVT_PLAYERLED,
-            .evt_playernumber = {.player_number=data[1]}
-        };
-        transport_evt_cb(evt);
-        break;
-    }
 }
 
 bool _core_sinput_get_generated_report(core_report_s *out)
 {
     out->reportformat=CORE_REPORTFORMAT_SINPUT;
     out->size=64; // 64 bytes including our report ID
+
+    // Handle features request response
+    if(_si_current_command==SINPUT_COMMAND_FEATURES)
+    {
+        if(_sinput_features_report_got)
+        {
+            memcpy(out->data, _sinput_features_report_data, SINPUT_REPORT_LEN_INPUT);
+        }
+        _si_current_command = 0;
+    }
+    else 
+    {
+        // Forward our most up to date input data
+        // TO DO
+    }
 
     return true;
 }
@@ -551,22 +208,24 @@ const core_hid_device_t _sinput_hid_device = {
 /*------------------------------------------------*/
 
 // Public Functions
+void core_sinput_deinit()
+{
+
+}
+
+volatile bool _sinput_transport_running = false;
+core_params_s *_sinput_core_params = NULL;
+
 bool core_sinput_init(core_params_s *params)
 {
+    _sinput_core_params = params;
+
     params->transport_dev_mac[5] += 2;
     
     switch(params->transport_type)
     {
         case GAMEPAD_TRANSPORT_USB:
         params->core_pollrate_us = 1000;
-        break;
-
-        case GAMEPAD_TRANSPORT_BLUETOOTH:
-        params->core_pollrate_us = 8000;
-        break;
-
-        case GAMEPAD_TRANSPORT_WLAN:
-        params->core_pollrate_us = 2000;
         break;
 
         // Unsupported transport methods
@@ -581,4 +240,69 @@ bool core_sinput_init(core_params_s *params)
     params->core_report_tunnel    = _core_sinput_report_tunnel_cb;
 
     return transport_init(params);
+}
+
+void core_sinput_task(uint64_t timestamp)
+{
+    // The idea here is that we do not want to init
+    // TinyUSB until we actually have our feature
+    // data. Once we receive the features data
+    // from the gamepad, we init the TinyUSB stack
+    // so that Steam and other programs may have 
+    // a chance to pick up all of the correct properties
+    if(!_sinput_transport_running)
+    {
+        if(_sinput_features_report_got && _sinput_core_params)
+        {
+            _sinput_transport_running = transport_init(_sinput_core_params);
+        }
+    }
+    else 
+    {
+        // Run our transport task
+        if(_sinput_core_params->transport_task)
+        _sinput_core_params->transport_task(timestamp);
+    }
+}
+
+bool _sinput_compare_features(const uint8_t *in)
+{
+    for(uint16_t i = 0; i < SINPUT_REPORT_LEN_COMMAND; i++)
+    {
+        // For any byte that doesn't match, we will return false
+        if(in[i] != _sinput_features_report_data[i]) return false;
+    }
+
+    return true;
+}
+
+// WLAN Packets INPUT from gamepad we receive are tunneled into here
+void core_sinput_input_tunnel(const uint8_t *data, uint16_t len)
+{
+    switch(data[0])
+    {
+        // Standard input report data
+        case REPORT_ID_SINPUT_INPUT:
+        break;
+
+        // Command reply data
+        case REPORT_ID_SINPUT_INPUT_CMDDAT:
+        uint8_t command = data[1];
+        if(command == SINPUT_COMMAND_FEATURES && len==SINPUT_REPORT_LEN_INPUT)
+        {
+            if(_sinput_features_report_got)
+            {
+                // If we return true, proceed, otherwise reboot
+                // because need to re-init
+                if(!_sinput_compare_features(data))
+                {
+                    // REBOOT HERE
+                }
+            }
+
+            memcpy(_sinput_features_report_data, data, SINPUT_REPORT_LEN_INPUT);
+            _sinput_features_report_got = true;
+        }
+        break;
+    }
 }
