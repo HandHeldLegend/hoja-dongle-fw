@@ -141,11 +141,11 @@ void slippid_init(void)
 uint16_t slippid_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     // Do not open if we aren't in Slippi reporting mode
-    //if (_usb_core_params)
-    //{
-    //    if (_usb_core_params->core_report_format != CORE_REPORTFORMAT_SINPUT)
-    //        return 0;
-    //}
+    if (_usb_core_params)
+    {
+        if (_usb_core_params->core_report_format != CORE_REPORTFORMAT_SLIPPI)
+            return 0;
+    }
 
     // len = interface + hid + n*endpoints
     uint16_t const drv_len = (uint16_t)(sizeof(tusb_desc_interface_t) + sizeof(tusb_hid_descriptor_hid_t) +

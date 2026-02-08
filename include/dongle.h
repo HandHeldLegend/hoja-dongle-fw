@@ -12,9 +12,10 @@ typedef enum
 
 typedef enum 
 {
-    HWLAN_REPORT_PASSTHROUGH = 0x01,
-    HWLAN_REPORT_TRANSPORT = 0x02,
-    HWLAN_REPORT_HELLO = 0x03,
+    HWLAN_REPORT_PASSTHROUGH = 0x01, 
+    HWLAN_REPORT_TRANSPORT = 0x02, 
+    HWLAN_REPORT_HELLO = 0x03, 
+    HWLAN_REPORT_PING = 0x04, 
 } hoja_wlan_report_t;
 
 typedef struct 

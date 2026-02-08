@@ -12,6 +12,8 @@
 #include "lwip/pbuf.h"
 #include "lwip/udp.h"
 
+#include "utilities/interval.h"
+
 struct udp_pcb *global_tx_pcb = NULL;
 struct udp_pcb *global_rx_pcb = NULL;
 ip_addr_t global_gw;
@@ -149,6 +151,16 @@ int main()
 
     for (;;)
     {
+        // Send ping every 250ms
+        static interval_s interval = {0};
+        if(interval_run(time_us_64(), 250 * 1000, &interval))
+        {
+            hoja_wlan_report_s ping = {
+                .wlan_report_id = HWLAN_REPORT_PING,
+            };
+            wlan_report_tunnel_out(ping);
+        }
+
         // Init message handle on core 0
         if (_msg.unread)
         {
