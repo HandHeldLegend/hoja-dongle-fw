@@ -18,8 +18,6 @@ struct udp_pcb* global_pcb = NULL;
 #define WIFI_SSID_BASE "HOJA_WLAN_123456"
 #define WIFI_PASS "HOJA_1234"
 
-
-
 typedef struct 
 {
     bool running;
@@ -41,6 +39,19 @@ void _udp_receive_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_ad
         switch(r->wlan_report_id)
         {
             case HWLAN_REPORT_HELLO:
+            if(_sm.running)
+            {
+                if(r->report_format != _sm.report_format)
+                {
+                    // Reboot into the correct mode here
+                    // TO DO
+                }
+                else
+                {
+                    // We are already in the correct report mode
+                    // we can continue...
+                }
+            }
             break;
 
             case HWLAN_REPORT_PASSTHROUGH:
