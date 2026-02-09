@@ -34,7 +34,7 @@ snapshot_sinput_report_t _snap_sinput;
 
 // When we receive our features report data
 // we can ready this flag
-bool _sinput_features_report_got = false;
+volatile bool _sinput_features_report_got = false;
 uint8_t _sinput_features_report_data[SINPUT_REPORT_LEN_INPUT] = {0};
 
 const hoja_usb_device_descriptor_t _sinput_device_descriptor = {
@@ -170,14 +170,24 @@ const uint8_t _sinput_configuration_descriptor[SINPUT_CONFIG_DESCRIPTOR_LEN] = {
 
 #define SINPUT_CLAMP(val, min, max) ((val) < (min) ? (min) : ((val) > (max) ? (max) : (val)))
 
-
-
 volatile uint8_t _si_current_command = 0;
+
+void _core_sinput_send_featurerequest()
+{
+    hoja_wlan_report_s r = {
+        .len = SINPUT_REPORT_LEN_COMMAND,
+        .report_format = CORE_REPORTFORMAT_SINPUT,
+        .wlan_report_id = HWLAN_REPORT_PASSTHROUGH,
+        .data = {REPORT_ID_SINPUT_OUTPUT_CMDDAT, SINPUT_COMMAND_FEATURES}
+    };
+
+    wlan_report_tunnel_out(r);
+}
 
 // OUTPUT reports from HOST we receive are tunneled into here
 void _core_sinput_output_tunnel(const uint8_t *data, uint16_t len)
 {
-    if(len!=SINPUT_REPORT_LEN_INPUT) return;
+    if(len!=SINPUT_REPORT_LEN_COMMAND) return;
 
     // Report ID
     if(data[0] == REPORT_ID_SINPUT_OUTPUT_CMDDAT)
@@ -242,10 +252,12 @@ void _core_sinput_input_tunnel(const uint8_t *data, uint16_t len)
                     // REBOOT HERE
                 }
             }
-
-            // Any other case simply respond with the same features data
-            memcpy(_sinput_features_report_data, data, SINPUT_REPORT_LEN_INPUT);
-            _sinput_features_report_got = true;
+            else
+            {
+                // Any other case simply respond with the same features data
+                memcpy(_sinput_features_report_data, data, SINPUT_REPORT_LEN_INPUT);
+                _sinput_features_report_got = true;
+            }
         }
         break;
     }
@@ -336,8 +348,11 @@ bool core_sinput_init(core_params_s *params)
     // Set target transport type
     params->core_transport = GAMEPAD_TRANSPORT_USB;
 
+    // Send feature request
+    _core_sinput_send_featurerequest();
+
     // Do NOT init TinyUSB yet
-    return true;
+    return transport_init(params);
 }
 
 
