@@ -8,6 +8,8 @@
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
+#include "pico/bootrom.h"
+#include "hardware/watchdog.h"
 
 #include "lwip/pbuf.h"
 #include "lwip/udp.h"
@@ -143,11 +145,46 @@ void _wlan_network_task()
     }
 }
 
+#define SCRATCH_OFFSET 0xC
+#define MAX_INDEX     7
+#define WD_READOUT_IDX 5
+#define BOOT_MAGIC 0xFACE0000
+
+void _wlan_reboot_to_format(core_reportformat_t format)
+{
+    if (WD_READOUT_IDX > MAX_INDEX) {
+        // Handle the error here. For simplicity, we'll just return in this example.
+        return;
+    }
+    *((volatile uint32_t *) (WATCHDOG_BASE + SCRATCH_OFFSET + (WD_READOUT_IDX * 4))) = (BOOT_MAGIC | (uint32_t)format);
+    core_deinit();
+    
+}
+
+uint32_t _wlan_get_bootmemory()
+{
+    if (WD_READOUT_IDX > MAX_INDEX) {
+        // Handle the error, maybe by returning an error code or logging a message.
+        // Here we just return 0 as a simple example.
+        return 0;
+    }
+    uint32_t val = *((volatile uint32_t *) (WATCHDOG_BASE + SCRATCH_OFFSET + (WD_READOUT_IDX * 4)));
+    if( (val & 0xFFFF0000) != BOOT_MAGIC) return 0;
+    return val & 0xFFFF;
+}
+
 int main()
 {
     stdio_init_all();
 
     multicore_launch_core1(_wlan_network_task);
+
+    uint32_t boot = _wlan_get_bootmemory();
+    if(boot)
+    {
+        _msg.report_format = boot;
+        _msg.unread = true;
+    }
 
     for (;;)
     {
@@ -168,8 +205,8 @@ int main()
             {
                 if (_msg.report_format != _sm.report_format)
                 {
-                    // Reboot into the correct mode here
-                    // TO DO
+                    // Reboot to clear dongle info
+                    watchdog_reboot(0, 0, 0);
                 }
                 else
                 {
@@ -182,19 +219,14 @@ int main()
             {
                 switch (_msg.report_format)
                 {
-                case CORE_REPORTFORMAT_SINPUT:
-                    if (core_init(CORE_REPORTFORMAT_SINPUT))
-                    {
-                        _sm.report_format = CORE_REPORTFORMAT_SINPUT;
-                        _sm.running = true;
-                        _sm.connected = true;
-                    }
-                    break;
-
                 case CORE_REPORTFORMAT_SLIPPI:
-                    if (core_init(CORE_REPORTFORMAT_SLIPPI))
+                case CORE_REPORTFORMAT_SINPUT:
+                case CORE_REPORTFORMAT_XINPUT:
+                case CORE_REPORTFORMAT_N64:
+                case CORE_REPORTFORMAT_GAMECUBE:
+                    if (core_init(_msg.report_format))
                     {
-                        _sm.report_format = CORE_REPORTFORMAT_SLIPPI;
+                        _sm.report_format = _msg.report_format;
                         _sm.running = true;
                         _sm.connected = true;
                     }
