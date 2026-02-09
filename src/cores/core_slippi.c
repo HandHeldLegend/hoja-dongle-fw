@@ -12,6 +12,8 @@
 #include "transport/transport.h"
 #include "utilities/crosscore_snapshot.h"
 
+#include "hardware/watchdog.h"
+
 typedef struct
 {
     uint8_t report[37];
@@ -141,8 +143,6 @@ void _core_slippi_input_tunnel(const uint8_t *data, uint16_t len)
 
 void _core_slippi_output_tunnel(const uint8_t *data, uint16_t len)
 {
-    if(len<2) return;
-
     switch(data[0])
     {
         // Rumble Event
