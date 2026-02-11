@@ -105,7 +105,7 @@ bool transport_init(core_params_s *params)
         case GAMEPAD_TRANSPORT_JOYBUSGC:
         if(transport_jbgc_init(params))
         {
-            _tp_stop_cb = NULL;
+            _tp_stop_cb = transport_jbgc_stop;
             params->core_transport_task = transport_jbgc_task;
             return true;
         }

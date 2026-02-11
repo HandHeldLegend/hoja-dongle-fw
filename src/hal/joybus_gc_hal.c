@@ -27,9 +27,9 @@ snapshot_gcinput_t _gc_hal_snap;
 
 core_params_s *_gc_core_params = NULL;
 
-#define GC_PIO_IN_USE pio1
-#define PIO_IRQ_USE_0 PIO1_IRQ_0
-#define PIO_IRQ_USE_1 PIO1_IRQ_1
+#define GC_PIO_IN_USE pio0
+#define PIO_IRQ_USE_0 PIO0_IRQ_0
+#define PIO_IRQ_USE_1 PIO0_IRQ_1
 
 #if !defined(JOYBUS_GC_DRIVER_DATA_PIN)
 #define JOYBUS_GC_DRIVER_DATA_PIN 1
@@ -87,11 +87,6 @@ void _gamecube_send_poll()
   pio_sm_put_blocking(GC_PIO_IN_USE, PIO_SM, ALIGNED_JOYBUS_8(out.analog_trigger_r));
 }
 
-void _gamecube_reset_state()
-{
-  joybus_program_init(GC_PIO_IN_USE, PIO_SM, _gamecube_offset, JOYBUS_GC_DRIVER_DATA_PIN, &_gamecube_c);
-}
-
 #define BYTECOUNT_DEFAULT 2
 #define BYTECOUNT_UNKNOWN -1
 #define BYTECOUNT_SWISS 10
@@ -99,12 +94,20 @@ volatile int _byteCounter = BYTECOUNT_UNKNOWN;
 volatile uint8_t _workingCmd = 0x00;
 volatile uint8_t _workingMode = 0x03;
 
+void _gamecube_reset_state()
+{
+  _byteCounter = BYTECOUNT_UNKNOWN;
+  joybus_program_init(GC_PIO_IN_USE, PIO_SM, _gamecube_offset, JOYBUS_GC_DRIVER_DATA_PIN, &_gamecube_c);
+}
+
+
+
 // Constants for default cycles and clock speeds
 #define DEFAULT_CYCLES 80        // 80 was the tested working from old FW
 #define DEFAULT_CLOCK_KHZ 125000 // 125 MHz
 #define NEW_CLOCK_KHZ (HOJA_BSP_CLOCK_SPEED_HZ / 1000)
 const uint32_t _gc_delay_cycles_origin = 50;
-const uint32_t _gc_delay_cycles_probe = 25; // 100 was around 9us
+const uint32_t _gc_delay_cycles_probe = 50; // 100 was around 9us
 const uint32_t _gc_delay_cycles_poll = 75;
 
 void __time_critical_func(_gamecube_command_handler)()
@@ -118,8 +121,9 @@ void __time_critical_func(_gamecube_command_handler)()
   {
     _workingCmd = pio_sm_get(GC_PIO_IN_USE, PIO_SM);
 
-    if (_workingCmd == 0)
+    if (_workingCmd == GCUBE_CMD_PROBE)
     {
+      _gc_got_data = true;
       joybus_jump_output(GC_PIO_IN_USE, PIO_SM, _gamecube_offset);
       c = _gc_delay_cycles_probe;
       while (c--)
@@ -130,6 +134,7 @@ void __time_critical_func(_gamecube_command_handler)()
     }
     else if (_workingCmd == GCUBE_CMD_ORIGIN)
     {
+      _gc_got_data = true;
       c = _gc_delay_cycles_origin;
       while (c--)
         asm("nop");
@@ -161,6 +166,7 @@ void __time_critical_func(_gamecube_command_handler)()
     {
       if (!_byteCounter)
       {
+        _gc_got_data = true;
         _byteCounter = BYTECOUNT_UNKNOWN;
         _gamecube_reset_state();
         ret = true;
@@ -177,6 +183,7 @@ void __time_critical_func(_gamecube_command_handler)()
       }
       else if (!_byteCounter)
       {
+        _gc_got_data = true;
         _gc_rumble = (dat & 1) ? true : false;
         _gc_brake = (dat & 2) ? true : false;
         _byteCounter = BYTECOUNT_UNKNOWN;
@@ -194,6 +201,7 @@ void __time_critical_func(_gamecube_command_handler)()
     {
       if (!_byteCounter)
       {
+        _gc_got_data = true;
         _byteCounter = BYTECOUNT_UNKNOWN;
         c = _gc_delay_cycles_poll;
         while (c--)
@@ -206,8 +214,6 @@ void __time_critical_func(_gamecube_command_handler)()
     break;
     }
   }
-
-  _gc_got_data = true;
 
   if (!ret)
   {
@@ -304,7 +310,7 @@ void _jbgc_translate_data(uint8_t mode, core_gamecube_report_s *in, core_gamecub
   }
 }
 
-static inline void _jbgc_handle_rumble()
+void _jbgc_handle_rumble()
 {
   // Handle rumble state if it changes
   static bool rumblestate = false;
@@ -320,6 +326,8 @@ static inline void _jbgc_handle_rumble()
     transport_evt_cb(evt);
   }
 }
+
+
 
 void _jbgc_handle_connection(bool connected)
 {
@@ -339,8 +347,6 @@ void _jbgc_handle_connection(bool connected)
     c = TP_CONNECTION_DISCONNECTED;
     connectstate = 0;
     emit = true;
-    _gamecube_reset_state();
-    sleep_ms(8);
   }
 
   tp_evt_s evt = {.evt_connectionchange = {
@@ -350,6 +356,34 @@ void _jbgc_handle_connection(bool connected)
   {
     transport_evt_cb(evt);
   }
+}
+
+// Callback for the hardware alarm
+static int64_t _jbgc_reset_alarm_callback(alarm_id_t id, void *user_data) {
+  // Disable PIO IRQ to prevent races during re-init
+  irq_set_enabled(_gamecube_irq, false);
+
+  _gamecube_reset_state();
+
+    core_gamecube_report_s neutral_report = {
+        .stick_left_x  = 128,
+        .stick_left_y  = 128,
+        .stick_right_x = 128,
+        .stick_right_y = 128,
+        .buttons_1     = 0,
+        .buttons_2     = 0,
+        .analog_trigger_l = 0,
+        .analog_trigger_r = 0,
+        .blank_2 = 1 // Match current logic
+    };
+    
+    // Ensure first poll response is neutral
+    snapshot_gcinput_write(&_gc_hal_snap, &neutral_report);
+
+    _jbgc_handle_connection(false);
+
+    irq_set_enabled(_gamecube_irq, true);
+    return 0; // Don't reschedule
 }
 
 /***********************************************/
@@ -375,6 +409,8 @@ void transport_jbgc_task(uint64_t timestamp)
 
   static interval_s interval = {0};
   static interval_s interval_reset = {0};
+  static interval_s interval_rumble = {0};
+  static alarm_id_t reset_alarm = 0;
 
   if (interval_run(timestamp, _gc_hal_params->core_pollrate_us, &interval))
   {
@@ -382,21 +418,34 @@ void transport_jbgc_task(uint64_t timestamp)
     core_report_s report;
     if (core_get_generated_report(&report))
     {
-
-      snapshot_gcinput_write(&_gc_hal_snap, (core_gamecube_report_s*)report.data);
+      core_gamecube_report_s translated = {0};
+      _jbgc_translate_data(_workingMode, (core_gamecube_report_s*)report.data, &translated);
+      snapshot_gcinput_write(&_gc_hal_snap, &translated);
     }
+  }
 
+  if(interval_run(timestamp, 8000, &interval_rumble))
+  {
     // Rumblecore_gamecube_report_s
     _jbgc_handle_rumble();
   }
 
+  // Check for communication loss (1 second timeout)
   if (interval_resettable_run(timestamp, 1000000, _gc_got_data, &interval_reset))
   {
-    _jbgc_handle_connection(false);
+    // If an alarm is already pending, cancel it first
+    if (reset_alarm > 0) cancel_alarm(reset_alarm);
+    
+    // Schedule reset 4ms from now (non-blocking)
+    reset_alarm = add_alarm_in_ms(4, _jbgc_reset_alarm_callback, NULL, true);
   }
 
   if (_gc_got_data)
   {
+    if (reset_alarm > 0) {
+        cancel_alarm(reset_alarm);
+        reset_alarm = 0;
+    }
     _jbgc_handle_connection(true);
     _gc_got_data = false;
   }
