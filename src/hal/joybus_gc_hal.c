@@ -31,8 +31,10 @@ core_params_s *_gc_core_params = NULL;
 #define PIO_IRQ_USE_0 PIO0_IRQ_0
 #define PIO_IRQ_USE_1 PIO0_IRQ_1
 
-#if !defined(JOYBUS_GC_DRIVER_DATA_PIN)
+#if !defined(JOYBUS_DRIVER_DATA_PIN)
 #define JOYBUS_GC_DRIVER_DATA_PIN 1
+#else
+#define JOYBUS_GC_DRIVER_DATA_PIN JOYBUS_DRIVER_DATA_PIN
 #endif
 
 #define PIO_SM 0
@@ -46,7 +48,7 @@ pio_sm_config _gamecube_c;
 
 volatile bool _gc_got_data = false;
 bool _gc_running = false;
-bool _gc_rumble = false;
+volatile bool _gc_rumble = false;
 bool _gc_brake = false;
 
 volatile uint8_t _gamecube_in_buffer[8] = {0};
@@ -99,8 +101,6 @@ void _gamecube_reset_state()
   _byteCounter = BYTECOUNT_UNKNOWN;
   joybus_program_init(GC_PIO_IN_USE, PIO_SM, _gamecube_offset, JOYBUS_GC_DRIVER_DATA_PIN, &_gamecube_c);
 }
-
-
 
 // Constants for default cycles and clock speeds
 #define DEFAULT_CYCLES 80        // 80 was the tested working from old FW
@@ -267,10 +267,10 @@ void _jbgc_translate_data(uint8_t mode, core_gamecube_report_s *in, core_gamecub
     break;
 
   case 0:
-    out->mode0.stick_left_x   = in->stick_left_x;
-    out->mode0.stick_left_y   = in->stick_left_y;
-    out->mode0.stick_right_x  = in->stick_right_x;
-    out->mode0.stick_right_y  = in->stick_right_y;
+    out->mode0.stick_left_x = in->stick_left_x;
+    out->mode0.stick_left_y = in->stick_left_y;
+    out->mode0.stick_right_x = in->stick_right_x;
+    out->mode0.stick_right_y = in->stick_right_y;
     out->mode0.analog_trigger_l = in->analog_trigger_l >> 4;
     out->mode0.analog_trigger_r = in->analog_trigger_r >> 4;
     out->mode0.analog_a = 0; // 4bits
@@ -278,10 +278,10 @@ void _jbgc_translate_data(uint8_t mode, core_gamecube_report_s *in, core_gamecub
     break;
 
   case 1:
-    out->mode1.stick_left_x     = in->stick_left_x;
-    out->mode1.stick_left_y     = in->stick_left_y;
-    out->mode1.stick_right_x    = in->stick_right_x >> 4;
-    out->mode1.stick_right_y    = in->stick_right_y >> 4;
+    out->mode1.stick_left_x = in->stick_left_x;
+    out->mode1.stick_left_y = in->stick_left_y;
+    out->mode1.stick_right_x = in->stick_right_x >> 4;
+    out->mode1.stick_right_y = in->stick_right_y >> 4;
     out->mode1.analog_trigger_l = in->analog_trigger_l;
     out->mode1.analog_trigger_r = in->analog_trigger_r;
     out->mode1.analog_a = 0; // 4bits
@@ -317,17 +317,17 @@ void _jbgc_handle_rumble()
   if (_gc_rumble != rumblestate)
   {
     rumblestate = _gc_rumble;
-
-    uint8_t rumble = rumblestate ? 255 : 0;
-
-    tp_evt_s evt = {.evt_ermrumble = {
-                        .left = rumble, .right = rumble, .left = 0, .right = 0}};
-
-    transport_evt_cb(evt);
   }
+
+  uint8_t rumble = rumblestate ? 255 : 0;
+
+  tp_evt_s evt = {
+      .evt = TP_EVT_ERMRUMBLE,
+      .evt_ermrumble = {
+          .left = rumble, .right = rumble, .leftbrake = _gc_brake, .rightbrake = _gc_brake}};
+
+  transport_evt_cb(&evt);
 }
-
-
 
 void _jbgc_handle_connection(bool connected)
 {
@@ -354,36 +354,37 @@ void _jbgc_handle_connection(bool connected)
 
   if (emit)
   {
-    transport_evt_cb(evt);
+    transport_evt_cb(&evt);
   }
 }
 
 // Callback for the hardware alarm
-static int64_t _jbgc_reset_alarm_callback(alarm_id_t id, void *user_data) {
+static int64_t _jbgc_reset_alarm_callback(alarm_id_t id, void *user_data)
+{
   // Disable PIO IRQ to prevent races during re-init
   irq_set_enabled(_gamecube_irq, false);
 
   _gamecube_reset_state();
 
-    core_gamecube_report_s neutral_report = {
-        .stick_left_x  = 128,
-        .stick_left_y  = 128,
-        .stick_right_x = 128,
-        .stick_right_y = 128,
-        .buttons_1     = 0,
-        .buttons_2     = 0,
-        .analog_trigger_l = 0,
-        .analog_trigger_r = 0,
-        .blank_2 = 1 // Match current logic
-    };
-    
-    // Ensure first poll response is neutral
-    snapshot_gcinput_write(&_gc_hal_snap, &neutral_report);
+  core_gamecube_report_s neutral_report = {
+      .stick_left_x = 128,
+      .stick_left_y = 128,
+      .stick_right_x = 128,
+      .stick_right_y = 128,
+      .buttons_1 = 0,
+      .buttons_2 = 0,
+      .analog_trigger_l = 0,
+      .analog_trigger_r = 0,
+      .blank_2 = 1 // Match current logic
+  };
 
-    _jbgc_handle_connection(false);
+  // Ensure first poll response is neutral
+  snapshot_gcinput_write(&_gc_hal_snap, &neutral_report);
 
-    irq_set_enabled(_gamecube_irq, true);
-    return 0; // Don't reschedule
+  _jbgc_handle_connection(false);
+
+  irq_set_enabled(_gamecube_irq, true);
+  return 0; // Don't reschedule
 }
 
 /***********************************************/
@@ -419,12 +420,12 @@ void transport_jbgc_task(uint64_t timestamp)
     if (core_get_generated_report(&report))
     {
       core_gamecube_report_s translated = {0};
-      _jbgc_translate_data(_workingMode, (core_gamecube_report_s*)report.data, &translated);
+      _jbgc_translate_data(_workingMode, (core_gamecube_report_s *)report.data, &translated);
       snapshot_gcinput_write(&_gc_hal_snap, &translated);
     }
   }
 
-  if(interval_run(timestamp, 8000, &interval_rumble))
+  if (interval_run(timestamp, 32000, &interval_rumble))
   {
     // Rumblecore_gamecube_report_s
     _jbgc_handle_rumble();
@@ -434,17 +435,19 @@ void transport_jbgc_task(uint64_t timestamp)
   if (interval_resettable_run(timestamp, 1000000, _gc_got_data, &interval_reset))
   {
     // If an alarm is already pending, cancel it first
-    if (reset_alarm > 0) cancel_alarm(reset_alarm);
-    
+    if (reset_alarm > 0)
+      cancel_alarm(reset_alarm);
+
     // Schedule reset 4ms from now (non-blocking)
     reset_alarm = add_alarm_in_ms(4, _jbgc_reset_alarm_callback, NULL, true);
   }
 
   if (_gc_got_data)
   {
-    if (reset_alarm > 0) {
-        cancel_alarm(reset_alarm);
-        reset_alarm = 0;
+    if (reset_alarm > 0)
+    {
+      cancel_alarm(reset_alarm);
+      reset_alarm = 0;
     }
     _jbgc_handle_connection(true);
     _gc_got_data = false;

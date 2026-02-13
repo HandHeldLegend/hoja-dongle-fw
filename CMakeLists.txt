@@ -52,9 +52,17 @@ add_executable(hoja-dongle-fw
 pico_set_program_name(hoja-dongle-fw "hoja-dongle-fw")
 pico_set_program_version(hoja-dongle-fw "0.1")
 
-# Modify the below lines to enable/disable output over UART/USB
-pico_enable_stdio_uart(hoja-dongle-fw 0)
-pico_enable_stdio_usb(hoja-dongle-fw 0)
+# PROTOTYPE BOARD DEFINES
+target_compile_definitions(hoja-dongle-fw PRIVATE
+        CYW43_DEFAULT_PIN_WL_REG_ON=0
+        CYW43_DEFAULT_PIN_WL_DATA_OUT=1
+        CYW43_DEFAULT_PIN_WL_DATA_IN=1
+        CYW43_DEFAULT_PIN_WL_HOST_WAKE=1
+        CYW43_DEFAULT_PIN_WL_CLOCK=2
+        CYW43_DEFAULT_PIN_WL_CS=3
+        JOYBUS_DRIVER_DATA_PIN=19
+        #HOJA_DIAGNOSTICS=1
+        )
 
 # Add the standard library to the build
 target_link_libraries(hoja-dongle-fw
@@ -75,5 +83,8 @@ pico_generate_pio_header(hoja-dongle-fw ${CMAKE_CURRENT_LIST_DIR}/pio/ws2812.pio
 pico_generate_pio_header(hoja-dongle-fw ${CMAKE_CURRENT_LIST_DIR}/pio/nserial.pio OUTPUT_DIR ${CMAKE_CURRENT_LIST_DIR}/include/generated)
 pico_generate_pio_header(hoja-dongle-fw ${CMAKE_CURRENT_LIST_DIR}/pio/joybus.pio OUTPUT_DIR ${CMAKE_CURRENT_LIST_DIR}/include/generated)
 
+# Modify the below lines to enable/disable output over UART/USB
+pico_enable_stdio_uart(hoja-dongle-fw 0)
+pico_enable_stdio_usb(hoja-dongle-fw 0)
 
 pico_add_extra_outputs(hoja-dongle-fw)

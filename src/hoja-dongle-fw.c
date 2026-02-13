@@ -133,7 +133,7 @@ void _wlan_network_task()
     cyw43_wifi_ap_set_channel(&cyw43_state, 4);
     cyw43_arch_enable_ap_mode(WIFI_SSID_BASE, WIFI_PASS, CYW43_AUTH_WPA2_AES_PSK);
 
-    pm_mode = cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 20, 1, 1, 1);
+    pm_mode = cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 1, 1, 1, 1);
     cyw43_wifi_pm(&cyw43_state, pm_mode);
 
 #define IP(x) (x)
@@ -165,14 +165,6 @@ void _wlan_network_task()
                 .wlan_report_id = HWLAN_REPORT_PING,
             };
             wlan_report_tunnel_out(ping);
-
-            uint32_t pm_value;
-            int res = cyw43_wifi_get_pm(&cyw43_state, &pm_value);
-
-            if (pm_value != pm_mode)
-            {
-                reset_usb_boot(0, 0);
-            }
         }
     }
 }

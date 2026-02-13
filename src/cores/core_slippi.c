@@ -143,6 +143,9 @@ void _core_slippi_input_tunnel(const uint8_t *data, uint16_t len)
 
 void _core_slippi_output_tunnel(const uint8_t *data, uint16_t len)
 {
+    // DEBUG
+    return;
+    
     switch(data[0])
     {
         // Rumble Event

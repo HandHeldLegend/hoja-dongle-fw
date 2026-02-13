@@ -2,68 +2,22 @@
 #include "cores/cores.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "transport/transport_usb.h"
 #include "transport/transport_joybus64.h"
 #include "transport/transport_joybusgc.h"
 
-void _transport_playerled(uint8_t led)
+void transport_evt_cb(tp_evt_s *evt)
 {
+    hoja_wlan_report_s report = {
+        .wlan_report_id = HWLAN_REPORT_TRANSPORT,
+        .len = sizeof(tp_evt_t),
+    };
 
-}
+    memcpy(report.data, evt, sizeof(tp_evt_s));
 
-void _transport_connectionchange(uint8_t status)
-{
-    switch(status)
-    {
-        case TP_CONNECTION_NONE:
-        break;
-
-        case TP_CONNECTION_CONNECTING:
-        break;
-
-        case TP_CONNECTION_CONNECTED:
-        break;
-
-        case TP_CONNECTION_DISCONNECTED:
-        break;
-    }
-}
-
-void _transport_ermrumble(uint8_t left, uint8_t right, uint8_t leftbrake, uint8_t rightbrake)
-{
-
-}
-
-void _transport_powercommand(uint8_t command)
-{
-
-}
-
-void transport_evt_cb(tp_evt_s evt)
-{
-    tp_evt_t evt_name = evt.evt;
-
-    switch(evt_name)
-    {
-        case TP_EVT_PLAYERLED:
-        _transport_playerled(evt.evt_playernumber.player_number);
-        break;
-
-        case TP_EVT_CONNECTIONCHANGE:
-        _transport_connectionchange(evt.evt_connectionchange.connection);
-        break;
-
-        case TP_EVT_ERMRUMBLE:
-        _transport_ermrumble(
-            evt.evt_ermrumble.left, evt.evt_ermrumble.right, 
-            evt.evt_ermrumble.leftbrake, evt.evt_ermrumble.rightbrake);
-        break;
-
-        case TP_EVT_POWERCOMMAND:
-        _transport_powercommand(evt.evt_powercommand.power_command);
-        break;
-    }
+    wlan_report_tunnel_out(report);
 }
 
 typedef void (*transport_stop_cb_t)(void);

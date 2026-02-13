@@ -66,7 +66,7 @@ typedef struct
     };
 } tp_evt_s;
 
-void transport_evt_cb(tp_evt_s evt);
+void transport_evt_cb(tp_evt_s *evt);
 bool transport_init(core_params_s *params);
 void transport_stop();
 
