@@ -130,7 +130,7 @@ void _wlan_network_task()
         return;
     }
     
-    cyw43_wifi_ap_set_channel(&cyw43_state, 4);
+    cyw43_wifi_ap_set_channel(&cyw43_state, 1);
     cyw43_arch_enable_ap_mode(WIFI_SSID_BASE, WIFI_PASS, CYW43_AUTH_WPA2_AES_PSK);
 
     //pm_mode = cyw43_pm_value(CYW43_NO_POWERSAVE_MODE, 20, 1, 1, 1);
