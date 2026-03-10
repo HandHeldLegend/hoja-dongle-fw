@@ -147,15 +147,10 @@ void _core_slippi_output_tunnel(const uint8_t *data, uint16_t len)
     {
         // Rumble Event
         case 0x11:
-        hoja_wlan_report_s r = {
-            .len = len,
-            .report_format = CORE_REPORTFORMAT_SLIPPI,
-            .wlan_report_id = HWLAN_REPORT_PASSTHROUGH
-        };
-        memcpy(r.data, data, len);
+        uint8_t strength = (data[1] & 0x1) ? 255 : 0;
+        uint8_t brake = 0;
 
-        // SEND this data to our gamepad
-        wlan_report_tunnel_out(r);
+        dongle_update_rumble(strength, strength, 0, 0);
         break;
 
         // Init adapter 
@@ -198,7 +193,7 @@ bool _core_slippi_get_generated_report(core_report_s *out)
         return true;
     }
 
-    if(wlan_is_connected())
+    if(dongle_current_status()->connection_status==WLAN_CONNSTAT_CONNECTED)
     {
         snapshot_slippi_report_read(&_snap_slippi, (slippi_report_s*)out->data);
     }

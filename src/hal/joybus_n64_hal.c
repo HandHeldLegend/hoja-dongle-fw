@@ -281,12 +281,7 @@ void _jb64_handle_rumble()
   
   uint8_t rumble = rumblestate ? 255 : 0;
 
-  tp_evt_s evt = {
-    .evt = TP_EVT_ERMRUMBLE,
-    .evt_ermrumble = {
-                      .left = rumble, .right = rumble, .leftbrake=0, .rightbrake=0}};
-
-  transport_evt_cb(&evt);
+  dongle_update_rumble(rumble, rumble, 0, 0);
 }
 
 void _jb64_handle_connection(bool connected)
@@ -294,30 +289,24 @@ void _jb64_handle_connection(bool connected)
   // Handle connection state if it changes
   static uint8_t connectstate = 0;
   bool emit = false;
-  tp_connectionchange_t c = TP_CONNECTION_NONE;
+  hoja_wlan_connstat_t c = WLAN_CONNSTAT_IDLE;
 
   if (!connectstate && connected)
   {
-    c = TP_CONNECTION_CONNECTED;
+    c = TRANSPORT_CONNSTAT_CONNECTED;
     connectstate = 1;
     emit = true;
   }
   else if (connectstate && !connected)
   {
-    c = TP_CONNECTION_DISCONNECTED;
+    c = TRANSPORT_CONNSTAT_DISCONNECTED;
     connectstate = 0;
     emit = true;
     _n64_reset_state();
     sleep_ms(8);
   }
 
-  tp_evt_s evt = {.evt_connectionchange = {
-                      .connection = c}};
-
-  if (emit)
-  {
-    transport_evt_cb(&evt);
-  }
+  dongle_update_transport_status(c);
 }
 
 // Callback for the hardware alarm

@@ -5,6 +5,7 @@
 #include <dongle.h>
 #include "utilities/interval.h"
 
+#include "dongle.h"
 #include "cores/cores.h"
 #include "transport/transport.h"
 #include "utilities/crosscore_snapshot.h"
@@ -177,11 +178,11 @@ void _core_sinput_send_featurerequest()
     hoja_wlan_report_s r = {
         .len = SINPUT_REPORT_LEN_COMMAND,
         .report_format = CORE_REPORTFORMAT_SINPUT,
-        .wlan_report_id = HWLAN_REPORT_PASSTHROUGH,
+        .wlan_report_id = HWLAN_REPORT_CORE_RELIABLE,
         .data = {REPORT_ID_SINPUT_OUTPUT_CMDDAT, SINPUT_COMMAND_FEATURES}
     };
 
-    wlan_report_tunnel_out(r);
+    wlan_send_reliable_report(&r);
 }
 
 // OUTPUT reports from HOST we receive are tunneled into here
@@ -200,12 +201,12 @@ void _core_sinput_output_tunnel(const uint8_t *data, uint16_t len)
             hoja_wlan_report_s r = {
                 .len = len,
                 .report_format = CORE_REPORTFORMAT_SINPUT,
-                .wlan_report_id = HWLAN_REPORT_PASSTHROUGH
+                .wlan_report_id = HWLAN_REPORT_CORE_RELIABLE
             };
             memcpy(r.data, data, len);
             
             // SEND this data to our gamepad
-            wlan_report_tunnel_out(r);
+            wlan_send_reliable_report(&r);
             break;
 
             case SINPUT_COMMAND_FEATURES:

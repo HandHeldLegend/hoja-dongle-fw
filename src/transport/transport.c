@@ -8,18 +8,6 @@
 #include "transport/transport_joybus64.h"
 #include "transport/transport_joybusgc.h"
 
-void transport_evt_cb(tp_evt_s *evt)
-{
-    hoja_wlan_report_s report = {
-        .wlan_report_id = HWLAN_REPORT_TRANSPORT,
-        .len = sizeof(tp_evt_t),
-    };
-
-    memcpy(report.data, evt, sizeof(tp_evt_s));
-
-    wlan_report_tunnel_out(report);
-}
-
 typedef void (*transport_stop_cb_t)(void);
 
 transport_stop_cb_t _tp_stop_cb = NULL;
