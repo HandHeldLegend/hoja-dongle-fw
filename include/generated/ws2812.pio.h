@@ -14,7 +14,7 @@
 
 #define ws2812_wrap_target 0
 #define ws2812_wrap 3
-#define ws2812_pio_version 0
+#define ws2812_pio_version 1
 
 static const uint16_t ws2812_program_instructions[] = {
             //     .wrap_target

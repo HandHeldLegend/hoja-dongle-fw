@@ -351,7 +351,7 @@ void _jbgc_handle_connection(bool connected)
 }
 
 // Callback for the hardware alarm
-static int64_t _jbgc_reset_alarm_callback(alarm_id_t id, void *user_data)
+static void _jbgc_reset()
 {
   // Disable PIO IRQ to prevent races during re-init
   irq_set_enabled(_gamecube_irq, false);
@@ -376,13 +376,41 @@ static int64_t _jbgc_reset_alarm_callback(alarm_id_t id, void *user_data)
   _jbgc_handle_connection(false);
 
   irq_set_enabled(_gamecube_irq, true);
-  return 0; // Don't reschedule
 }
 
 /***********************************************/
 /********* Transport Defines *******************/
 void transport_jbgc_stop()
 {
+  // Disable the PIO IRQ first to prevent races
+  irq_set_enabled(_gamecube_irq, false);
+
+  // Remove the IRQ handler
+  irq_remove_handler(_gamecube_irq, _gamecube_isr_handler);
+
+  // Disable the PIO IRQ source
+  pio_set_irq0_source_enabled(GC_PIO_IN_USE, pis_interrupt0, false);
+
+  // Disable and clean up the state machine
+  pio_sm_set_enabled(GC_PIO_IN_USE, PIO_SM, false);
+  pio_sm_clear_fifos(GC_PIO_IN_USE, PIO_SM);
+
+  // Remove the PIO program from instruction memory
+  pio_remove_program(GC_PIO_IN_USE, &joybus_program, _gamecube_offset);
+
+  // Reset internal state
+  _byteCounter = BYTECOUNT_UNKNOWN;
+  _workingCmd = 0x00;
+  _workingMode = 0x03;
+  _gc_got_data = false;
+  _gc_rumble = false;
+  _gc_brake = false;
+  _gc_running = false;
+
+  // Notify disconnection
+  _jbgc_handle_connection(false);
+
+  _gc_hal_params = NULL;
 }
 
 bool transport_jbgc_init(core_params_s *params)
@@ -403,7 +431,6 @@ void transport_jbgc_task(uint64_t timestamp)
   static interval_s interval = {0};
   static interval_s interval_reset = {0};
   static interval_s interval_rumble = {0};
-  static alarm_id_t reset_alarm = 0;
 
   if (interval_run(timestamp, _gc_hal_params->core_pollrate_us, &interval))
   {
@@ -426,21 +453,11 @@ void transport_jbgc_task(uint64_t timestamp)
   // Check for communication loss (1 second timeout)
   if (interval_resettable_run(timestamp, 1000000, _gc_got_data, &interval_reset))
   {
-    // If an alarm is already pending, cancel it first
-    if (reset_alarm > 0)
-      cancel_alarm(reset_alarm);
-
-    // Schedule reset 4ms from now (non-blocking)
-    reset_alarm = add_alarm_in_ms(4, _jbgc_reset_alarm_callback, NULL, true);
+    _jbgc_reset();
   }
 
   if (_gc_got_data)
   {
-    if (reset_alarm > 0)
-    {
-      cancel_alarm(reset_alarm);
-      reset_alarm = 0;
-    }
     _jbgc_handle_connection(true);
     _gc_got_data = false;
   }

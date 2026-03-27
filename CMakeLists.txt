@@ -23,7 +23,7 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
-set(PICO_BOARD pico_w CACHE STRING "Board type")
+set(PICO_BOARD pico2_w CACHE STRING "Board type")
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
@@ -54,13 +54,13 @@ pico_set_program_version(hoja-dongle-fw "0.1")
 
 # PROTOTYPE BOARD DEFINES
 target_compile_definitions(hoja-dongle-fw PRIVATE
-        CYW43_DEFAULT_PIN_WL_REG_ON=0
-        CYW43_DEFAULT_PIN_WL_DATA_OUT=1
-        CYW43_DEFAULT_PIN_WL_DATA_IN=1
-        CYW43_DEFAULT_PIN_WL_HOST_WAKE=1
-        CYW43_DEFAULT_PIN_WL_CLOCK=2
-        CYW43_DEFAULT_PIN_WL_CS=3
-        JOYBUS_DRIVER_DATA_PIN=19
+        CYW43_DEFAULT_PIN_WL_REG_ON=21
+        CYW43_DEFAULT_PIN_WL_DATA_OUT=22
+        CYW43_DEFAULT_PIN_WL_DATA_IN=22
+        CYW43_DEFAULT_PIN_WL_HOST_WAKE=22
+        CYW43_DEFAULT_PIN_WL_CS=23
+        CYW43_DEFAULT_PIN_WL_CLOCK=24
+        JOYBUS_DRIVER_DATA_PIN=9
         #HOJA_DIAGNOSTICS=1
         )
 

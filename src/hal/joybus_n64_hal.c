@@ -309,8 +309,7 @@ void _jb64_handle_connection(bool connected)
   dongle_update_transport_status(c);
 }
 
-// Callback for the hardware alarm
-static int64_t _jb64_reset_alarm_callback(alarm_id_t id, void *user_data)
+static void _jb64_reset()
 {
   // Disable PIO IRQ to prevent races during re-init
   irq_set_enabled(_n64_irq, false);
@@ -330,19 +329,45 @@ static int64_t _jb64_reset_alarm_callback(alarm_id_t id, void *user_data)
   _jb64_handle_connection(false);
 
   irq_set_enabled(_n64_irq, true);
-  return 0; // Don't reschedule
 }
 
 /***********************************************/
 /********* Transport Defines *******************/
 void transport_jb64_stop()
 {
+  // Disable the PIO IRQ first to prevent races
+  irq_set_enabled(_n64_irq, false);
+
+  // Remove the IRQ handler
+  irq_remove_handler(_n64_irq, _n64_isr_handler);
+
+  // Disable the PIO IRQ source
+  pio_set_irq0_source_enabled(PIO_IN_USE_N64, pis_interrupt0, false);
+
+  // Disable and clean up the state machine
+  pio_sm_set_enabled(PIO_IN_USE_N64, PIO_SM, false);
+  pio_sm_clear_fifos(PIO_IN_USE_N64, PIO_SM);
+
+  // Remove the PIO program from instruction memory
+  pio_remove_program(PIO_IN_USE_N64, &joybus_program, _n64_offset);
+
+  // Reset internal state
+  _workingCmd = 0x00;
+  _byteCount = 0;
+  _crc_reply = 0;
+  _n64_got_data = false;
+  _n64_rumble = false;
+  _n64_hal_params = NULL;
+
+  // Notify disconnection
+  _jb64_handle_connection(false);
 }
 
 bool transport_jb64_init(core_params_s *params)
 {
   if (params->core_report_format != CORE_REPORTFORMAT_N64)
     return false;
+
   _n64_hal_params = params;
 
   _joybus_n64_hal_init();
@@ -357,7 +382,6 @@ void transport_jb64_task(uint64_t timestamp)
   static interval_s interval = {0};
   static interval_s interval_reset = {0};
   static interval_s interval_rumble = {0};
-  static alarm_id_t reset_alarm = 0;
 
   // Input handling task
   if (interval_run(timestamp, _n64_hal_params->core_pollrate_us, &interval))
@@ -381,22 +405,14 @@ void transport_jb64_task(uint64_t timestamp)
     _jb64_handle_rumble();
   }
 
-  // Check for communication loss (1 second timeout)
-  if (interval_resettable_run(timestamp, 1000000, _n64_got_data, &interval_reset))
+  // Check for communication loss (5 second timeout)
+  if (interval_resettable_run(timestamp, 5000000, _n64_got_data, &interval_reset))
   {
-    // If an alarm is already pending, cancel it first
-    if (reset_alarm > 0) cancel_alarm(reset_alarm);
-    
-    // Schedule reset 4ms from now (non-blocking)
-    reset_alarm = add_alarm_in_ms(4, _jb64_reset_alarm_callback, NULL, true);
+    _jb64_reset();
   }
 
   if (_n64_got_data)
   {
-    if (reset_alarm > 0) {
-        cancel_alarm(reset_alarm);
-        reset_alarm = 0;
-    }
     _jb64_handle_connection(true);
     _n64_got_data = false;
   }

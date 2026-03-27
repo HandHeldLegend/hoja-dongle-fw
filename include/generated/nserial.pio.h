@@ -14,7 +14,7 @@
 
 #define nserial_wrap_target 0
 #define nserial_wrap 14
-#define nserial_pio_version 0
+#define nserial_pio_version 1
 
 #define nserial_offset_startserial 0u
 #define nserial_offset_dumpy 7u

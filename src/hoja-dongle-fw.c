@@ -258,6 +258,13 @@ int main()
 
     multicore_launch_core1(_wlan_network_task);
 
+    // Start in N64 mode
+    if (core_init(CORE_REPORTFORMAT_N64))
+    {
+        _dongle_format = CORE_REPORTFORMAT_N64;
+        _dongle_running = true;
+    }
+
     for (;;)
     {
         // Read our RX mailbox
@@ -279,9 +286,16 @@ int main()
                 {
                     if(_dongle_format != rx.report_format)
                     {
-                        //cyw43_arch_deinit();
-                        //sleep_ms(500);
-                        watchdog_reboot(0, 0, 0);
+                        if(_dongle_format == CORE_REPORTFORMAT_N64)
+                        {
+                            core_deinit();
+                            if (core_init(rx.report_format))
+                            {
+                                _dongle_format = rx.report_format;
+                                _dongle_running = true;
+                            }
+                        }
+                        else watchdog_reboot(0, 0, 0);
                     }
                 }
                 else

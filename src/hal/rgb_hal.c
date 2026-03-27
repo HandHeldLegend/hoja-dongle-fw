@@ -6,7 +6,12 @@
 #include "hardware/pio.h"
 #include "generated/ws2812.pio.h"
 
-#define RGB_PIO_IN_USE pio0
+#if NUM_PIOS > 2
+#define RGB_PIO_IN_USE pio2
+#else 
+#define RGB_PIO_IN_USE pio1 
+#endif 
+
 #define RGB_DRIVER_LED_COUNT 8
 
 #if !defined(RGB_DRIVER_OUTPUT_PIN)

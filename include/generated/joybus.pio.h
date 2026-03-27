@@ -14,7 +14,7 @@
 
 #define joybus_wrap_target 0
 #define joybus_wrap 26
-#define joybus_pio_version 0
+#define joybus_pio_version 1
 
 #define joybus_offset_joybusin 0u
 #define joybus_offset_joybusout 11u
