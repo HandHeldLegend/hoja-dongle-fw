@@ -12,6 +12,7 @@
 #include "utilities/n64_crc.h"
 #include "utilities/interval.h"
 #include "utilities/crosscore_snapshot.h"
+#include "dongle_wlan.h"
 
 typedef enum
 {
@@ -289,24 +290,23 @@ void _jb64_handle_connection(bool connected)
   // Handle connection state if it changes
   static uint8_t connectstate = 0;
   bool emit = false;
-  hoja_wlan_connstat_t c = WLAN_CONNSTAT_IDLE;
-
   if (!connectstate && connected)
   {
-    c = TRANSPORT_CONNSTAT_CONNECTED;
     connectstate = 1;
     emit = true;
   }
   else if (connectstate && !connected)
   {
-    c = TRANSPORT_CONNSTAT_DISCONNECTED;
     connectstate = 0;
     emit = true;
     _n64_reset_state();
     sleep_ms(8);
   }
 
-  dongle_update_transport_status(c);
+  if (emit)
+  {
+    dongle_update_player_number(connected ? 1 : 0);
+  }
 }
 
 static void _jb64_reset()

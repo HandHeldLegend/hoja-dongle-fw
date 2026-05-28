@@ -39,39 +39,32 @@ typedef struct
 } core_report_s;
 
 typedef bool (*core_generate_report_t)(core_report_s *out);
-typedef void (*core_report_tunnel_t)(const uint8_t *data, uint16_t len);
+typedef void (*core_input_report_tunnel_t)(const uint8_t *data, uint16_t len);
+typedef void (*core_output_report_tunnel_t)(const uint8_t *data, uint16_t len);
 typedef void (*core_transport_task_t)(uint64_t timestamp);
 typedef void (*core_task_t)(uint64_t timestamp);
-typedef core_hid_device_t* (*core_get_hid_device_t)(void);
-
-typedef void(*core_input_report_tunnel_t)(const uint8_t *data, uint16_t len);
-typedef void(*core_output_report_tunnel_t)(const uint8_t *data, uint16_t len);
-typedef void(*core_task_t)(uint64_t timestamp);
-typedef void(*core_deinit_t)(void);
+typedef void (*core_deinit_t)(void);
 
 typedef struct 
 {
-    core_task_t                   core_task; // The main task to feed the core
-    core_transport_task_t         core_transport_task; // The transport task
-    gamepad_transport_t           core_transport;       // The target transport type
-    core_reportformat_t           core_report_format;   // Which core and report format to use
-    uint16_t                      core_pollrate_us;     // Transport methods may or may not respect this value
-    core_generate_report_t        core_report_generator;    // Get generated report data from this
-    core_input_report_tunnel_t    core_input_report_tunnel; // Where incoming reports should be sent
-    core_output_report_tunnel_t   core_output_report_tunnel;// Where the HOST output reports should be sent
-    core_deinit_t                 core_deinit;  // Disable/turn off the core
-    const core_hid_device_t*      hid_device;   // HID device info
+    core_task_t                   core_task;
+    core_transport_task_t         core_transport_task;
+    gamepad_transport_t           core_transport;
+    core_reportformat_t           core_report_format;
+    uint16_t                      core_pollrate_us;
+    core_generate_report_t        core_report_generator;
+    core_input_report_tunnel_t    core_input_report_tunnel;
+    core_output_report_tunnel_t   core_output_report_tunnel;
+    core_deinit_t                 core_deinit;
+    const core_hid_device_t*      hid_device;
 } core_params_s;
 
 core_params_s* core_current_params();
-bool core_is_mac_blank(uint8_t mac[6]);
-
 bool core_get_generated_report(core_report_s *out);
-void core_report_tunnel_cb(const uint8_t *data, uint16_t len);
-
-void core_input_report_tunnel(hoja_wlan_report_s *report);
+void core_input_report_tunnel(const uint8_t *data, uint16_t len);
 void core_task(uint64_t timestamp);
 void core_deinit();
-bool core_init(core_reportformat_t format);
+bool core_init(core_reportformat_t format, const dongle_wake_s *wake);
+bool core_transport_is_usb(core_reportformat_t format);
 
 #endif

@@ -12,6 +12,7 @@
 
 #include "utilities/interval.h"
 #include "utilities/crosscore_snapshot.h"
+#include "dongle_wlan.h"
 
 typedef enum
 {
@@ -329,24 +330,20 @@ void _jbgc_handle_connection(bool connected)
   // Handle connection state if it changes
   static uint8_t connectstate = 0;
   bool emit = false;
-  hoja_transport_connstat_t c = TRANSPORT_CONNSTAT_IDLE;
-
   if (!connectstate && connected)
   {
-    c = TRANSPORT_CONNSTAT_CONNECTED;
     connectstate = 1;
     emit = true;
   }
   else if (connectstate && !connected)
   {
-    c = TRANSPORT_CONNSTAT_DISCONNECTED;
     connectstate = 0;
     emit = true;
   }
 
   if (emit)
   {
-    dongle_update_transport_status(c);
+    dongle_update_player_number(connected ? 1 : 0);
   }
 }
 

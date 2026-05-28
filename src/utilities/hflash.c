@@ -14,6 +14,7 @@
  */
 
 #include <stdint.h>
+#include <string.h>
 
 #include "pico/flash.h"
 #include "hardware/flash.h"

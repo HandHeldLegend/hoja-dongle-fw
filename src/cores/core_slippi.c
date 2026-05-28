@@ -9,6 +9,8 @@
 #include "cores/core_slippi.h"
 
 #include "cores/cores.h"
+#include "cores/core_usb.h"
+#include "dongle_wlan.h"
 #include "transport/transport.h"
 #include "utilities/crosscore_snapshot.h"
 
@@ -193,49 +195,47 @@ bool _core_slippi_get_generated_report(core_report_s *out)
         return true;
     }
 
-    if(dongle_current_status()->connection_status==WLAN_CONNSTAT_CONNECTED)
+    if (dongle_current_status()->connection == DONGLE_CONN_CONNECTED)
     {
         snapshot_slippi_report_read(&_snap_slippi, (slippi_report_s*)out->data);
     }
     return true;
 }
 
-void _core_slippi_deinit()
-{
-
-}
-
+static core_usb_state_t _slippi_usb;
 core_params_s *_slippi_core_params = NULL;
+
+void _core_slippi_deinit(void)
+{
+    core_usb_stop(&_slippi_usb);
+}
 
 void _core_slippi_task(uint64_t timestamp)
 {
-    if(_slippi_core_params->core_transport_task)
-    {
-        _slippi_core_params->core_transport_task(timestamp);
-    }
+    core_usb_task(&_slippi_usb, timestamp);
 }
 
-/*------------------------------------------------*/
-
-volatile bool _slippi_transport_running = false;
-
-// Public Functions
-bool core_slippi_init(core_params_s *params)
+bool core_slippi_init(core_params_s *params, const dongle_wake_s *wake)
 {
     _slippi_core_params = params;
-    
+    _slippi_usb = (core_usb_state_t){.params = params, .transport_active = false};
+
     params->core_pollrate_us = 1000;
     params->hid_device = &_slippi_hid_device;
-    
-    params->core_report_format          = CORE_REPORTFORMAT_SLIPPI;
-    params->core_report_generator       = _core_slippi_get_generated_report;
-    params->core_output_report_tunnel   = _core_slippi_output_tunnel;
-    params->core_input_report_tunnel    = _core_slippi_input_tunnel;
-    params->core_deinit                 = _core_slippi_deinit;
-    params->core_task                   = _core_slippi_task;
 
-    // Set target transport type
+    params->core_report_format = CORE_REPORTFORMAT_SLIPPI;
+    params->core_report_generator = _core_slippi_get_generated_report;
+    params->core_output_report_tunnel = _core_slippi_output_tunnel;
+    params->core_input_report_tunnel = _core_slippi_input_tunnel;
+    params->core_deinit = _core_slippi_deinit;
+    params->core_task = _core_slippi_task;
+
     params->core_transport = GAMEPAD_TRANSPORT_USB;
 
-    return transport_init(params);
+    if (!wake)
+    {
+        return true;
+    }
+
+    return core_usb_start(&_slippi_usb, wake, NULL);
 }

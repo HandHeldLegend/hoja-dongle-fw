@@ -42,6 +42,9 @@ file(GLOB_RECURSE UTILS_C "${CMAKE_CURRENT_LIST_DIR}/src/utilities/*.c")
 
 add_executable(hoja-dongle-fw 
     src/hdongle.c 
+    src/dongle_wlan.c
+    src/dongle_wlan_core0.c
+    src/dongle_wlan_core1.c
     src/dhcpserver.c 
     ${HAL_C} 
     ${CORES_C} 
@@ -78,16 +81,12 @@ target_include_directories(hoja-dongle-fw PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/include
 )
 
-# Add external libraries
-add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/NS-LIB-HID")
-add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/SINPUT-LIB-HID")
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/HOJA-LIB-DONGLE")
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/NS-LIB-HID")
 
-# Link external libraries
 target_link_libraries(hoja-dongle-fw
-        ns_lib_hid
-        sinput_lib_hid
         hoja_lib_dongle
+        ns_lib_hid
         )
 
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/include/generated)

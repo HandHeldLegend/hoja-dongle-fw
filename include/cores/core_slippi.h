@@ -46,6 +46,6 @@ typedef struct
 } core_slippi_report_s;
 #pragma pack(pop)
 
-bool core_slippi_init(core_params_s *params);
+bool core_slippi_init(core_params_s *params, const dongle_wake_s *wake);
 
 #endif
