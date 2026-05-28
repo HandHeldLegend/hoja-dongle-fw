@@ -5,6 +5,7 @@
 
 #include "cores/cores.h"
 
+
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
 #include "pico/multicore.h"
@@ -16,6 +17,7 @@
 
 #include "utilities/interval.h"
 #include "utilities/crosscore_snapshot.h"
+#include "utilities/hflash.h"
 
 static struct udp_pcb *pcb = NULL;
 static ip_addr_t client_addr;
