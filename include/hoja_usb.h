@@ -1,3 +1,22 @@
+/*
+ * USB descriptor helper macros and standard USB/HID descriptor type definitions.
+ *
+ * Copyright (c) 2026 Hand Held Legend, LLC
+ * Author: Mitchell Cairns
+ *
+ * SPDX-License-Identifier: MIT-0
+ */
+
+/**
+ * @file hoja_usb.h
+ * @brief Self-contained USB descriptor helpers and standard enum/struct definitions.
+ *
+ * Provides byte/endian/bitmask helper macros (HUSB_*) for assembling USB
+ * descriptors by hand, plus the standard USB device descriptor layout and the
+ * descriptor-type / class-code / transfer-type enumerations used when building
+ * the dongle's emulated USB device.
+ */
+
 #ifndef HOJA_USB_H
 #define HOJA_USB_H
 

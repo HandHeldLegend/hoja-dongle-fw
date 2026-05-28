@@ -1,9 +1,27 @@
+/*
+ * Precomputed lookup table for the N64 controller data CRC.
+ *
+ * Copyright (c) 2026 Hand Held Legend, LLC
+ * Author: Mitchell Cairns
+ *
+ * SPDX-License-Identifier: MIT-0
+ */
+
+/**
+ * @file n64_crc.h
+ * @brief 256-entry lookup table for the N64 joybus data CRC.
+ *
+ * Provides a byte-indexed table for the N64 data CRC (polynomial 0x85). The
+ * commented generator routine at the end documents exactly how the table was
+ * produced and can be used to regenerate it.
+ */
+
 #ifndef WIRED_N64_CRC_H
 #define WIRED_N64_CRC_H
 
 #include <stdint.h>
 
-// Believe it or not this CRC table is AI generated o.-
+/* Byte-indexed remainder table for the N64 data CRC (polynomial 0x85). */
 static const uint8_t n64_crc[256] = {
 0x00, 0x85, 0x8F, 0x0A, 0x9B, 0x1E, 0x14, 0x91, 0xB3, 0x36, 0x3C, 0xB9, 0x28, 0xAD, 0xA7, 0x22, 
 0xE3, 0x66, 0x6C, 0xE9, 0x78, 0xFD, 0xF7, 0x72, 0x50, 0xD5, 0xDF, 0x5A, 0xCB, 0x4E, 0x44, 0xC1, 

@@ -41,8 +41,10 @@ file(GLOB_RECURSE HAL_C "${CMAKE_CURRENT_LIST_DIR}/src/hal/*.c")
 file(GLOB_RECURSE UTILS_C "${CMAKE_CURRENT_LIST_DIR}/src/utilities/*.c")
 
 add_executable(hoja-dongle-fw 
-    src/hdongle.c 
     src/dhcpserver.c 
+    src/core1wlan.c 
+    src/core0transport.c 
+    src/central.c 
     ${HAL_C} 
     ${CORES_C} 
     ${TRANSPORTS_C} 
@@ -61,7 +63,12 @@ target_compile_definitions(hoja-dongle-fw PRIVATE
         CYW43_DEFAULT_PIN_WL_CS=23
         CYW43_DEFAULT_PIN_WL_CLOCK=24
         JOYBUS_DRIVER_DATA_PIN=9
-        #HOJA_DIAGNOSTICS=1
+        HOJA_RGB_PIN=17
+        HOJA_RGB_COUNT=2
+        HOJA_RGB_BRIGHTNESS=48
+        HOJA_BTN1_PIN=20
+        HOJA_BTN2_PIN=29
+        CYW43_USES_VSYS_PIN=0
         )
 
 # Add the standard library to the build
@@ -69,6 +76,7 @@ target_link_libraries(hoja-dongle-fw
         pico_cyw43_arch_lwip_threadsafe_background
         pico_stdlib
         pico_multicore 
+        hardware_watchdog
         tinyusb_device
         tinyusb_board
         )
@@ -78,16 +86,12 @@ target_include_directories(hoja-dongle-fw PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/include
 )
 
-# Add external libraries
-add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/NS-LIB-HID")
-add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/SINPUT-LIB-HID")
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/HOJA-LIB-DONGLE")
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/NS-LIB-HID")
 
-# Link external libraries
 target_link_libraries(hoja-dongle-fw
-        ns_lib_hid
-        sinput_lib_hid
         hoja_lib_dongle
+        ns_lib_hid
         )
 
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/include/generated)
