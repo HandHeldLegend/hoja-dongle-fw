@@ -28,30 +28,6 @@ static bool client_known = false;
 #define WIFI_SSID_BASE "HOJA_WLAN_1234"
 #define WIFI_PASS "HOJA_1234"
 
-typedef struct 
-{
-    uint16_t session_sig;
-    uint16_t gamepad_sig;
-    uint16_t dongle_sig;
-} wlan_sigs_s;
-
-wlan_sigs_s _wlan_sigs = {0};
-
-// Whether or not we block new reliable packets
-volatile uint32_t reliable_tx_block = 0;
-
-SNAPSHOT_TYPE(wlan_pkt, hoja_wlan_report_s);
-// Our OUTGOING reliable packet snapshot
-snapshot_wlan_pkt_t snap_reliable_pkt;
-// Our OUTGOING unreliable packet snapshot
-snapshot_wlan_pkt_t snap_unreliable_pkt;
-// Our INPUT packet snapshot (UDP from gamepad)
-snapshot_wlan_pkt_t snap_input_pkt;
-
-
-SNAPSHOT_TYPE(wlan_status_pkt, hoja_wlan_status_s);
-// Our snapshot for our status data
-snapshot_wlan_status_pkt_t snap_status_data;
 
 hoja_wlan_status_s _this_status = {.connection_status = 0};
 
@@ -246,15 +222,6 @@ uint8_t _dongle_format = 0xFF;
 int main()
 {
     stdio_init_all();
-
-    // Write blank packets
-    hoja_wlan_report_s blank = {0};
-    snapshot_wlan_pkt_write(&snap_reliable_pkt, &blank);
-    snapshot_wlan_pkt_write(&snap_unreliable_pkt, &blank);
-    snapshot_wlan_pkt_write(&snap_input_pkt, &blank);
-
-    hoja_wlan_status_s sblank = {0};
-    snapshot_wlan_status_pkt_write(&snap_status_data, &sblank);
 
     multicore_launch_core1(_wlan_network_task);
 

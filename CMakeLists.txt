@@ -41,7 +41,7 @@ file(GLOB_RECURSE HAL_C "${CMAKE_CURRENT_LIST_DIR}/src/hal/*.c")
 file(GLOB_RECURSE UTILS_C "${CMAKE_CURRENT_LIST_DIR}/src/utilities/*.c")
 
 add_executable(hoja-dongle-fw 
-    src/hoja-dongle-fw.c 
+    src/hdongle.c 
     src/dhcpserver.c 
     ${HAL_C} 
     ${CORES_C} 
@@ -77,6 +77,18 @@ target_link_libraries(hoja-dongle-fw
 target_include_directories(hoja-dongle-fw PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/include
 )
+
+# Add external libraries
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/NS-LIB-HID")
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/SINPUT-LIB-HID")
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/HOJA-LIB-DONGLE")
+
+# Link external libraries
+target_link_libraries(hoja-dongle-fw
+        ns_lib_hid
+        sinput_lib_hid
+        hoja_lib_dongle
+        )
 
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/include/generated)
 pico_generate_pio_header(hoja-dongle-fw ${CMAKE_CURRENT_LIST_DIR}/pio/ws2812.pio OUTPUT_DIR ${CMAKE_CURRENT_LIST_DIR}/include/generated)
