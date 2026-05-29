@@ -6,6 +6,9 @@
 
 #include "cores/cores.h"
 
+#include "hdongle.h"
+#include "pico/time.h"
+
 #include "hardware/structs/usb.h"
 
 #include "bsp/board.h"
@@ -977,7 +980,6 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
 /***********************************************/
 /********* TinyUSB HID callbacks ***************/
 
-volatile uint8_t sequence_step = 0;
 volatile uint8_t ms_counter = 0;
 uint32_t _usb_frames = 8;
 // Whether USB is ready for another input
@@ -1067,36 +1069,27 @@ void tud_mount_cb()
     tud_sof_cb_enable(true);
 }
 
-void tud_sof_cb(uint32_t frame_count_ext) 
+void tud_sof_cb(uint32_t frame_count_ext)
 {
-    switch (_usb_frames)
+    (void)frame_count_ext;
+
+    uint64_t now_us = time_us_64();
+
+    ms_counter++;
+
+    if (ms_counter >= _usb_frames)
     {
-        case 1:
-            _usb_sendit = true;
-            break;
-
-        case 8:
-            ms_counter++;
-            // To hit 8, 8, 9 intervals, we trigger at 7, 7, 8
-            uint8_t trigger_threshold = (sequence_step == 2) ? 8 : 7;
-
-            if (ms_counter >= trigger_threshold) {
-                // Reset counters
-                ms_counter = 0;
-                sequence_step = (sequence_step + 1) % 3;
-                _usb_sendit = true;
-            }
-            break;
-        
-        default:
-            ms_counter++;
-            if (ms_counter >= _usb_frames) {
-                // Reset counters
-                ms_counter = 0;
-                _usb_sendit = true;
-            }
-            break;
-
+        ms_counter = 0;
+        if (_usb_frames == 1)
+        {
+            hdongle_link_pump_schedule_from_poll(now_us);
+        }
+        hdongle_link_pump_mark_sent(now_us);
+        _usb_sendit = true;
+    }
+    else if (ms_counter == (_usb_frames >> 1))
+    {
+        hdongle_link_pump_schedule_from_poll(now_us);
     }
 }
 
@@ -1108,6 +1101,8 @@ void tud_sof_cb(uint32_t frame_count_ext)
 void transport_usb_stop()
 {
     _usb_hal_report_cb = NULL;
+    hdongle_link_pump_reset_timing();
+    ms_counter = 0;
     tud_deinit(0);
 }
 core_report_s _core_report = {0};
@@ -1116,13 +1111,15 @@ bool transport_usb_init(core_params_s *params)
 {
     // Copy pointer
     _usb_core_params = params;
+    hdongle_link_pump_reset_timing();
+    ms_counter = 0;
     memset(_core_report.data, 0, 64);
 
     switch (_usb_core_params->core_report_format)
     {
     // Supported report formats
     case CORE_REPORTFORMAT_SINPUT:
-        _usb_frames = 1;
+        _usb_frames = 2;
         _usb_hal_ready_cb = tud_hid_ready;
         _usb_hal_report_cb = tud_hid_report;
         break;
@@ -1133,13 +1130,13 @@ bool transport_usb_init(core_params_s *params)
         break;
 
     case CORE_REPORTFORMAT_XINPUT:
-        _usb_frames = 1;
+        _usb_frames = 2;
         _usb_hal_ready_cb = tud_xinput_ready;
         _usb_hal_report_cb = tud_xinput_report;
         break;
 
     case CORE_REPORTFORMAT_SLIPPI:
-        _usb_frames = 1;
+        _usb_frames = 2;
         _usb_hal_ready_cb = tud_slippi_ready;
         _usb_hal_report_cb = tud_slippi_report;
         break;

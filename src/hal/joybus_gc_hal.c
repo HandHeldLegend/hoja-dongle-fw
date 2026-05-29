@@ -48,6 +48,7 @@ uint _gamecube_offset;
 pio_sm_config _gamecube_c;
 
 volatile bool _gc_got_data = false;
+volatile bool _gc_sent_data = false;
 bool _gc_running = false;
 volatile bool _gc_rumble = false;
 bool _gc_brake = false;
@@ -193,6 +194,7 @@ void __time_critical_func(_gamecube_command_handler)()
           asm("nop");
         joybus_jump_output(GC_PIO_IN_USE, PIO_SM, _gamecube_offset);
         _gamecube_send_poll();
+        _gc_sent_data = true;
         ret = true;
       }
     }
@@ -372,6 +374,8 @@ static void _jbgc_reset()
 
   _jbgc_handle_connection(false);
 
+  hdongle_link_pump_reset_timing();
+
   irq_set_enabled(_gamecube_irq, true);
 }
 
@@ -400,9 +404,11 @@ void transport_jbgc_stop()
   _workingCmd = 0x00;
   _workingMode = 0x03;
   _gc_got_data = false;
+  _gc_sent_data = false;
   _gc_rumble = false;
   _gc_brake = false;
   _gc_running = false;
+  hdongle_link_pump_reset_timing();
 
   // Notify disconnection
   _jbgc_handle_connection(false);
@@ -428,6 +434,14 @@ void transport_jbgc_task(uint64_t timestamp)
   static interval_s interval = {0};
   static interval_s interval_reset = {0};
   static interval_s interval_rumble = {0};
+
+  if (_gc_sent_data)
+  {
+    uint64_t now_us = timestamp;
+    hdongle_link_pump_schedule_from_poll(now_us);
+    hdongle_link_pump_mark_sent(now_us);
+    _gc_sent_data = false;
+  }
 
   if (interval_run(timestamp, _gc_hal_params->core_pollrate_us, &interval))
   {

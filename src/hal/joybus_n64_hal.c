@@ -55,6 +55,7 @@ volatile static uint8_t _byteCount = 0;
 volatile uint8_t _crc_reply = 0;
 
 volatile bool _n64_got_data = false;
+volatile bool _n64_sent_data = false;
 bool _n64_running = false;
 
 uint8_t _n64_calculate_crc(const uint8_t *data, size_t len, uint8_t init_value, bool pak_inserted)
@@ -231,6 +232,7 @@ void __time_critical_func(_n64_command_handler)()
         asm("nop");
       joybus_jump_output(PIO_IN_USE_N64, PIO_SM, _n64_offset);
       _n64_send_poll();
+      _n64_sent_data = true;
       _workingCmd = 0;
       break;
     }
@@ -328,6 +330,8 @@ static void _jb64_reset()
 
   _jb64_handle_connection(false);
 
+  hdongle_link_pump_reset_timing();
+
   irq_set_enabled(_n64_irq, true);
 }
 
@@ -356,7 +360,9 @@ void transport_jb64_stop()
   _byteCount = 0;
   _crc_reply = 0;
   _n64_got_data = false;
+  _n64_sent_data = false;
   _n64_rumble = false;
+  hdongle_link_pump_reset_timing();
   _n64_hal_params = NULL;
 
   // Notify disconnection
@@ -382,6 +388,14 @@ void transport_jb64_task(uint64_t timestamp)
   static interval_s interval = {0};
   static interval_s interval_reset = {0};
   static interval_s interval_rumble = {0};
+
+  if (_n64_sent_data)
+  {
+    uint64_t now_us = timestamp;
+    hdongle_link_pump_schedule_from_poll(now_us);
+    hdongle_link_pump_mark_sent(now_us);
+    _n64_sent_data = false;
+  }
 
   // Input handling task
   if (interval_run(timestamp, _n64_hal_params->core_pollrate_us, &interval))

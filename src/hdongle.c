@@ -7,8 +7,8 @@
  *   _crosscore       — safe to call from either core (resets shared FIFOs/snapshots)
  *
  * Responsibility split:
- *   Core 1 — WiFi AP, DHCP, UDP bind, RX callback, ingress, WAKE beacons, 500 Hz pump
- *            (STATUS when idle, CORE_RELIABLE resend when awaiting gamepad ack).
+ *   Core 1 — WiFi AP, DHCP, UDP bind, RX callback, ingress, WAKE beacons.
+ *            While link is up, STATUS / reliable OUT only when core0 schedules hdongle_link_pump(at_us).
  *   Core 0 — USB/console transport, core_init from WAKE, gamepad → host data paths.
  *
  * Wire model (dongle_pkt_s, see dongle.h):
@@ -28,12 +28,13 @@
  *   1. Core1 LINK_DOWN: broadcast WAKE beacons to DONGLE_GAMEPAD_IP*.
  *   2. Gamepad sends WAKE with session + dongle_wake_s → core1 posts wake_mailbox.
  *   3. Core0 consumes mailbox → core_init(wake).
- *   4. Core1 LINK_UP: pump sends STATUS or resends reliable OUT until ack echoed.
+ *   4. Core1 LINK_UP: hdongle_link_pump_* from host poll timing (SOF / joybus) → STATUS or reliable OUT.
  *   5. On 5 s without RX: core1 resets link, signals core0 timeout snapshot.
  */
 
 #include <stdio.h>
 #include <string.h>
+#include <stdatomic.h>
 
 #include <dhcpserver.h>
 #include <dongle.h>
@@ -353,7 +354,7 @@ void hdongle_core0(uint64_t time_us)
 typedef enum
 {
     HDONGLE_WLAN_LINK_DOWN, /* No recent gamepad RX — send WAKE beacons only */
-    HDONGLE_WLAN_LINK_UP,   /* Gamepad heard — 500 Hz STATUS / reliable pump */
+    HDONGLE_WLAN_LINK_UP,   /* Gamepad heard — pump via hdongle_link_pump() only */
 } hdongle_wlan_link_t;
 
 typedef enum
@@ -374,12 +375,18 @@ typedef struct
     dongle_pkt_s inflight; /* Host OUT payload being acknowledged */
 
     interval_s wake_iv; /* 100 ms WAKE beacon timer while LINK_DOWN */
-    interval_s pump_iv; /* 2 ms (500 Hz) pump timer while LINK_UP */
 } hdongle_wlan_sm_t;
 
 static struct udp_pcb *_pcb;
 static ip_addr_t _gamepad_addr; /* Fixed DONGLE_GAMEPAD_IP* from dongle.h */
 static hdongle_wlan_sm_t _wlan_sm;
+
+/** Next WLAN pump deadline from core0 (atomic; core1 executes when time_us >= pump_at_us). */
+static atomic_ullong _link_pump_at_us;
+/** Last completed WLAN pump on core1 (rate limit). */
+static atomic_ullong _link_pump_last_done_us;
+/** Last host poll response time on core0 (half-period scheduling). */
+static atomic_ullong _link_poll_last_sent_us;
 
 static void _signal_link_timeout_core1(void);
 
@@ -504,6 +511,8 @@ static void _wlan_sm_reset_link(hdongle_wlan_sm_t *sm)
     _wlan_sm_link_disconnect(sm);
     _reset_crosscore_paths();
     _wake_last_posted_valid = false;
+    hdongle_link_pump_reset_timing();
+    atomic_store_explicit(&_link_pump_at_us, 0, memory_order_relaxed);
     _signal_link_timeout_core1();
 }
 
@@ -732,7 +741,7 @@ static bool _send_inflight_reliable_core1(const hdongle_wlan_sm_t *sm)
 }
 
 /**
- * One 500 Hz pump tick for reliable OUT.
+ * One WLAN pump tick for reliable OUT.
  * Returns true if a reliable packet was sent (caller skips STATUS this tick).
  */
 static bool _pump_reliable_tx_core1(hdongle_wlan_sm_t *sm)
@@ -751,10 +760,84 @@ static bool _pump_reliable_tx_core1(hdongle_wlan_sm_t *sm)
 }
 
 /**
+ * One WLAN link pump: send reliable resend if inflight, else STATUS.
+ * No-op while LINK_DOWN.
+ */
+static void _wlan_pump_link_core1(hdongle_wlan_sm_t *sm)
+{
+    if (sm->link != HDONGLE_WLAN_LINK_UP)
+    {
+        return;
+    }
+
+    if (!_pump_reliable_tx_core1(sm))
+    {
+        _send_status_core1(sm);
+    }
+}
+
+void hdongle_link_pump(uint64_t pump_at_us)
+{
+    uint64_t now_us = time_us_64();
+    uint64_t last_us = atomic_load_explicit(&_link_pump_last_done_us, memory_order_relaxed);
+
+    if (last_us > 0 && (now_us - last_us) < HDONGLE_LINK_PUMP_MIN_INTERVAL_US)
+    {
+        return;
+    }
+
+    if (pump_at_us < now_us)
+    {
+        pump_at_us = now_us;
+    }
+
+    atomic_store_explicit(&_link_pump_at_us, pump_at_us, memory_order_release);
+}
+
+void hdongle_link_pump_reset_timing(void)
+{
+    atomic_store_explicit(&_link_poll_last_sent_us, 0, memory_order_relaxed);
+}
+
+void hdongle_link_pump_schedule_from_poll(uint64_t now_us)
+{
+    uint64_t last_sent_us = atomic_load_explicit(&_link_poll_last_sent_us, memory_order_relaxed);
+
+    if (last_sent_us > 0)
+    {
+        hdongle_link_pump(now_us + ((now_us - last_sent_us) >> 1));
+    }
+}
+
+void hdongle_link_pump_mark_sent(uint64_t now_us)
+{
+    atomic_store_explicit(&_link_poll_last_sent_us, now_us, memory_order_relaxed);
+}
+
+static void _try_link_pump_core1(hdongle_wlan_sm_t *sm, uint64_t now_us)
+{
+    uint64_t at_us = atomic_load_explicit(&_link_pump_at_us, memory_order_acquire);
+    if (at_us == 0 || now_us < at_us)
+    {
+        return;
+    }
+
+    uint64_t last_us = atomic_load_explicit(&_link_pump_last_done_us, memory_order_relaxed);
+    if (last_us > 0 && (now_us - last_us) < HDONGLE_LINK_PUMP_MIN_INTERVAL_US)
+    {
+        return;
+    }
+
+    atomic_store_explicit(&_link_pump_at_us, 0, memory_order_release);
+    atomic_store_explicit(&_link_pump_last_done_us, now_us, memory_order_relaxed);
+    _wlan_pump_link_core1(sm);
+}
+
+/**
  * Core1 periodic TX scheduler:
  *   - Check RX timeout → full reset + notify core0
  *   - LINK_DOWN → 100 ms WAKE beacons
- *   - LINK_UP   → every 2 ms: reliable resend OR STATUS fallback
+ *   (LINK_UP TX is driven only by hdongle_link_pump on core0)
  */
 static void _pump_tx_core1(hdongle_wlan_sm_t *sm, uint64_t now_us)
 {
@@ -769,16 +852,6 @@ static void _pump_tx_core1(hdongle_wlan_sm_t *sm, uint64_t now_us)
         if (interval_run(now_us, HDONGLE_WAKE_INTERVAL_US, &sm->wake_iv))
         {
             _send_wake_beacon_core1(sm);
-        }
-        return;
-    }
-
-    /* LINK_UP: only transmit on pump interval edges (500 Hz). */
-    if (interval_run(now_us, HDONGLE_PUMP_INTERVAL_US, &sm->pump_iv))
-    {
-        if (!_pump_reliable_tx_core1(sm))
-        {
-            _send_status_core1(sm);
         }
     }
 }
@@ -812,6 +885,7 @@ static void _udp_rx_cb_core1(void *arg, struct udp_pcb *udp, struct pbuf *p, con
 void hdongle_core1(uint64_t time_us)
 {
     _udp_rx_consume_core1(&_wlan_sm);
+    _try_link_pump_core1(&_wlan_sm, time_us);
     _pump_tx_core1(&_wlan_sm, time_us);
 }
 
