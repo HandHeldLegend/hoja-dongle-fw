@@ -8,7 +8,7 @@
  * Override at build time: -DHOJA_RGB_BRIGHTNESS=32
  */
 #ifndef HOJA_RGB_BRIGHTNESS
-#define HOJA_RGB_BRIGHTNESS 48u
+#define HOJA_RGB_BRIGHTNESS 32u
 #endif
 
 /** Hold time before a button toggles its LED (microseconds). */
