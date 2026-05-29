@@ -4,11 +4,14 @@
 #include <stdint.h>
 #include <hoja_types.h>
 
-void rgb_hal_init();
+#ifndef HOJA_RGB_COUNT
+#define HOJA_RGB_COUNT 32
+#endif
 
-void rgb_hal_deinit();
+void rgb_hal_init(void);
+void rgb_hal_deinit(void);
 
-// Update all RGBs
-void rgb_hal_update(rgb_s *data);
+/** Push count pixels (GRB) to the strip; count must not exceed HOJA_RGB_COUNT. */
+void rgb_hal_update(const rgb_s *data);
 
 #endif

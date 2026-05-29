@@ -41,6 +41,7 @@
 
 #include "hdongle.h"
 #include "cores/cores.h"
+#include "hal/dongle_rgb.h"
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
@@ -239,6 +240,11 @@ static uint8_t _active_mode = HDONGLE_MODE_NONE;
 static bool _wlan_owned_core; /* true if WLAN WAKE switched us away from boot core */
 static dongle_session_s _active_session;
 
+uint8_t hdongle_active_mode(void)
+{
+    return _active_mode;
+}
+
 /**
  * Take one pending WAKE from the mailbox (consume-once).
  * Returns false if core1 has not posted a new WAKE since last consume.
@@ -285,6 +291,7 @@ static void _init_core_from_wake_core0(const dongle_wake_s *wake, const dongle_s
 
     _active_session = *session;
     _active_mode = (uint8_t)mode;
+    dongle_rgb_set_mode(_active_mode);
     _wlan_owned_core = (_active_mode != _boot_mode);
     /* Boot N64 stays resident in RAM even when gamepad also wants N64. */
     if (mode == DONGLE_MODE_N64 && _boot_mode == DONGLE_MODE_N64)
@@ -319,6 +326,7 @@ static void _handle_link_timeout_core0(void)
         sleep_ms(100);
         core_init(core_boot_wake());
         _active_mode = _boot_mode;
+        dongle_rgb_set_mode(_active_mode);
         _wlan_owned_core = false;
     }
 
@@ -345,6 +353,7 @@ void hdongle_core0(uint64_t time_us)
 
     _try_consume_wake_core0();
     core_task(time_us);
+    dongle_rgb_task(time_us);
 }
 
 /* ========================================================================== */
@@ -935,6 +944,8 @@ static void main_core1(void)
 /** Core0: boot N64, launch WLAN core, run transport + WAKE consumer loop. */
 int main(void)
 {
+    dongle_rgb_enter_bootloader_if_buttons_held();
+
     stdio_init_all();
 
     _boot_mode = core_boot_wake()->mode;
@@ -943,6 +954,12 @@ int main(void)
     core_init(core_boot_wake());
 
     multicore_launch_core1(main_core1);
+
+    /* CYW43 may reconfigure GPIOs at init; reclaim button pins on core0. */
+    dongle_rgb_gpio_init();
+
+    dongle_rgb_init();
+    dongle_rgb_set_mode(_active_mode);
 
     for (;;)
     {

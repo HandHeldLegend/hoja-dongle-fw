@@ -61,6 +61,12 @@ target_compile_definitions(hoja-dongle-fw PRIVATE
         CYW43_DEFAULT_PIN_WL_CS=23
         CYW43_DEFAULT_PIN_WL_CLOCK=24
         JOYBUS_DRIVER_DATA_PIN=9
+        HOJA_RGB_PIN=17
+        HOJA_RGB_COUNT=2
+        HOJA_RGB_BRIGHTNESS=48
+        HOJA_BTN1_PIN=20
+        HOJA_BTN2_PIN=29
+        CYW43_USES_VSYS_PIN=0
         #HOJA_DIAGNOSTICS=1
         )
 

@@ -14,7 +14,7 @@ extern "C" {
 #define HDONGLE_WAKE_INTERVAL_US 100000u
 #define HDONGLE_TIMEOUT_US 5000000u
 /** hdongle_link_pump() no-ops if called sooner than this (~500 Hz max). */
-#define HDONGLE_LINK_PUMP_MIN_INTERVAL_US 1800u
+#define HDONGLE_LINK_PUMP_MIN_INTERVAL_US 1900u
 
 /* Core 0 — gamepad → host (cores choose unreliable and/or reliable) */
 bool hdongle_rx_unreliable_read_core0(dongle_pkt_s *pkt);
@@ -49,6 +49,9 @@ dongle_status_u *hdongle_current_status(void);
 void hdongle_update_rumble(uint8_t rumble_left, uint8_t rumble_right, uint8_t brake_left, uint8_t brake_right);
 void hdongle_update_connection_status(dongle_connection_t connection);
 void hdongle_update_player_number(uint8_t player);
+
+/** Active dongle_mode_t on core0 (for status LEDs, diagnostics). */
+uint8_t hdongle_active_mode(void);
 
 /* Per-core main loops */
 void hdongle_core0(uint64_t time_us);
