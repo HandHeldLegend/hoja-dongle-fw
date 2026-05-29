@@ -31,20 +31,6 @@ core_params_s _core_params = {
     .core_transport = GAMEPAD_TRANSPORT_UNDEFINED,
 };
 
-bool core_transport_is_usb(core_reportformat_t format)
-{
-    switch (format)
-    {
-    case CORE_REPORTFORMAT_SINPUT:
-    case CORE_REPORTFORMAT_XINPUT:
-    case CORE_REPORTFORMAT_SWPRO:
-    case CORE_REPORTFORMAT_SLIPPI:
-        return true;
-    default:
-        return false;
-    }
-}
-
 bool core_get_generated_report(core_report_s *out)
 {
     if (!_core_params.core_report_generator)
@@ -68,33 +54,43 @@ core_params_s *core_current_params(void)
     return &_core_params;
 }
 
-bool core_init(core_reportformat_t format, const dongle_wake_s *wake)
+static const dongle_wake_s _boot_wake = {
+    .mode = DONGLE_MODE_N64,
+};
+
+const dongle_wake_s *core_boot_wake(void)
 {
-    if (core_transport_is_usb(format) && !wake)
+    return &_boot_wake;
+}
+
+bool core_init(const dongle_wake_s *wake)
+{
+    if (!wake)
     {
         return false;
     }
 
-    switch (format)
+    switch ((dongle_mode_t)wake->mode)
     {
-    case CORE_REPORTFORMAT_SINPUT:
+    case DONGLE_MODE_SINPUT:
         return core_sinput_init(&_core_params, wake);
 
-    case CORE_REPORTFORMAT_XINPUT:
+    case DONGLE_MODE_XINPUT:
         return core_xinput_init(&_core_params, wake);
 
-    case CORE_REPORTFORMAT_SWPRO:
+    case DONGLE_MODE_SWITCH:
         return core_switch_init(&_core_params, wake);
 
-    case CORE_REPORTFORMAT_N64:
+    case DONGLE_MODE_N64:
         return core_n64_init(&_core_params);
 
-    case CORE_REPORTFORMAT_GAMECUBE:
+    case DONGLE_MODE_GAMECUBE:
         return core_gamecube_init(&_core_params);
 
-    case CORE_REPORTFORMAT_SLIPPI:
+    case DONGLE_MODE_SLIPPI:
         return core_slippi_init(&_core_params, wake);
 
+    case DONGLE_MODE_SNES:
     default:
         return false;
     }

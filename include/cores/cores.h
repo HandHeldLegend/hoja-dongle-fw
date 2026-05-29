@@ -64,7 +64,10 @@ bool core_get_generated_report(core_report_s *out);
 void core_input_report_tunnel(const uint8_t *data, uint16_t len);
 void core_task(uint64_t timestamp);
 void core_deinit();
-bool core_init(core_reportformat_t format, const dongle_wake_s *wake);
-bool core_transport_is_usb(core_reportformat_t format);
+/** Default WAKE for power-on / link-timeout restore (N64 joybus). */
+const dongle_wake_s *core_boot_wake(void);
+
+/** Select core + transport from wake->mode (dongle_mode_t); USB cores apply wake->vid/pid. */
+bool core_init(const dongle_wake_s *wake);
 
 #endif

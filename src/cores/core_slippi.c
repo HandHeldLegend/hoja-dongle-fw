@@ -10,7 +10,7 @@
 
 #include "cores/cores.h"
 #include "cores/core_usb.h"
-#include "dongle_wlan.h"
+#include "hdongle.h"
 #include "transport/transport.h"
 
 #include "hardware/watchdog.h"
@@ -132,7 +132,7 @@ const core_hid_device_t _slippi_hid_device = {
     .device_descriptor      = &_slippi_device_descriptor,
 };
 
-// WLAN input arrives via dongle_wlan_read_next() in get_generated_report.
+// WLAN input: hdongle_rx_unreliable_read_core0() in get_generated_report.
 
 void _core_slippi_output_tunnel(const uint8_t *data, uint16_t len)
 {    
@@ -143,7 +143,7 @@ void _core_slippi_output_tunnel(const uint8_t *data, uint16_t len)
         uint8_t strength = (data[1] & 0x1) ? 255 : 0;
         uint8_t brake = 0;
 
-        dongle_update_rumble(strength, strength, 0, 0);
+        hdongle_update_rumble(strength, strength, 0, 0);
         break;
 
         // Init adapter 
@@ -186,10 +186,14 @@ bool _core_slippi_get_generated_report(core_report_s *out)
         return true;
     }
 
-    if (dongle_current_status()->connection == DONGLE_CONN_CONNECTED)
+    if (hdongle_current_status()->connection == DONGLE_CONN_CONNECTED)
     {
-        uint16_t len = 0;
-        dongle_wlan_read_next(out->data, &len);
+        dongle_pkt_s pkt;
+        if (hdongle_rx_unreliable_read_core0(&pkt) && pkt.len > 0)
+        {
+            uint16_t n = pkt.len > out->size ? out->size : pkt.len;
+            memcpy(out->data, pkt.data, n);
+        }
     }
     return true;
 }

@@ -7,7 +7,7 @@
 #include "cores/core_switch.h"
 #include "cores/core_usb.h"
 #include "cores/cores.h"
-#include "dongle_wlan.h"
+#include "hdongle.h"
 #include "transport/transport.h"
 
 #define SWPRO_INPUT_LEN 64
@@ -98,10 +98,11 @@ static bool _switch_get_generated_report(core_report_s *out)
     out->reportformat = CORE_REPORTFORMAT_SWPRO;
     out->size = SWPRO_INPUT_LEN;
 
-    uint16_t len = 0;
-    if (dongle_wlan_read_next(out->data, &len) && len == out->size)
+    dongle_pkt_s pkt;
+    if (hdongle_rx_unreliable_read_core0(&pkt) && pkt.len == out->size)
     {
-        memcpy(&_last_report, out->data, len);
+        memcpy(&_last_report, pkt.data, pkt.len);
+        memcpy(out->data, &_last_report, out->size);
     }
     else
     {
@@ -112,7 +113,7 @@ static bool _switch_get_generated_report(core_report_s *out)
 
 static void _switch_output_tunnel(const uint8_t *data, uint16_t len)
 {
-    dongle_wlan_queue_output(data, len);
+    hdongle_core0_send_reliable_outputreport(data, len);
 }
 
 static void _switch_deinit(void)

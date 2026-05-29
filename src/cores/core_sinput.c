@@ -4,7 +4,7 @@
 #include <string.h>
 #include <dongle.h>
 
-#include "dongle_wlan.h"
+#include "hdongle.h"
 #include "cores/cores.h"
 #include "cores/core_usb.h"
 #include "transport/transport.h"
@@ -98,7 +98,7 @@ static void _sinput_apply_wake(const dongle_wake_s *wake, core_hid_device_t *hid
 static void _core_sinput_send_featurerequest(void)
 {
     const uint8_t req[] = {REPORT_ID_SINPUT_OUTPUT_CMDDAT, SINPUT_COMMAND_FEATURES};
-    dongle_wlan_queue_output(req, sizeof(req));
+    hdongle_core0_send_reliable_outputreport(req, sizeof(req));
 }
 
 static void _core_sinput_output_tunnel(const uint8_t *data, uint16_t len)
@@ -112,7 +112,7 @@ static void _core_sinput_output_tunnel(const uint8_t *data, uint16_t len)
     {
     case SINPUT_COMMAND_HAPTIC:
     case SINPUT_COMMAND_PLAYERLED:
-        dongle_wlan_queue_output(data, len);
+        hdongle_core0_send_reliable_outputreport(data, len);
         break;
 
     case SINPUT_COMMAND_FEATURES:
@@ -128,18 +128,23 @@ static bool _core_sinput_get_generated_report(core_report_s *out)
     out->size = SINPUT_REPORT_LEN_INPUT;
 
     uint16_t len = 0;
-    if (!dongle_wlan_read_next(out->data, &len) || len != SINPUT_REPORT_LEN_INPUT)
-    {
-        return true;
-    }
 
     if (_si_current_command == SINPUT_COMMAND_FEATURES &&
+        hdongle_core0_consume_reliable_inputreport(out->data, &len) &&
+        len == SINPUT_REPORT_LEN_INPUT &&
         out->data[0] == REPORT_ID_SINPUT_INPUT_CMDDAT &&
         out->data[1] == SINPUT_COMMAND_FEATURES)
     {
         memcpy(_sinput_features_report_data, out->data, SINPUT_REPORT_LEN_INPUT);
         _sinput_features_report_got = true;
         _si_current_command = 0;
+        return true;
+    }
+
+    dongle_pkt_s pkt;
+    if (hdongle_rx_unreliable_read_core0(&pkt) && pkt.len == SINPUT_REPORT_LEN_INPUT)
+    {
+        memcpy(out->data, pkt.data, pkt.len);
     }
 
     return true;

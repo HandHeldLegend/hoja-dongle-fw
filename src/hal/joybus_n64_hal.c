@@ -12,7 +12,7 @@
 #include "utilities/n64_crc.h"
 #include "utilities/interval.h"
 #include "utilities/crosscore_snapshot.h"
-#include "dongle_wlan.h"
+#include "hdongle.h"
 
 typedef enum
 {
@@ -282,7 +282,7 @@ void _jb64_handle_rumble()
   
   uint8_t rumble = rumblestate ? 255 : 0;
 
-  dongle_update_rumble(rumble, rumble, 0, 0);
+  hdongle_update_rumble(rumble, rumble, 0, 0);
 }
 
 void _jb64_handle_connection(bool connected)
@@ -305,7 +305,7 @@ void _jb64_handle_connection(bool connected)
 
   if (emit)
   {
-    dongle_update_player_number(connected ? 1 : 0);
+    hdongle_update_player_number(connected ? 1 : 0);
   }
 }
 
