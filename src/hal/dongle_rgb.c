@@ -11,7 +11,7 @@
 #include "pico/stdlib.h"
 
 #ifndef HOJA_RGB_COUNT
-#define HOJA_RGB_COUNT 32
+#define HOJA_RGB_COUNT 2
 #endif
 
 #ifndef HOJA_BTN_HOLD_US
@@ -57,8 +57,8 @@ typedef struct
     uint64_t press_start_us;
 } dongle_rgb_btn_t;
 
-static dongle_rgb_btn_t _btn1; /* BTN1: WLAN / connection LED */
-static dongle_rgb_btn_t _btn2; /* BTN2: mode LED */
+static dongle_rgb_btn_t _btn1; /* BTN1 (GPIO20): mode LED */
+static dongle_rgb_btn_t _btn2; /* BTN2 (GPIO29): WLAN / connection LED */
 
 static uint8_t _scale_channel(uint8_t v)
 {
@@ -249,11 +249,11 @@ void dongle_rgb_init(void)
 
     _btn1 = (dongle_rgb_btn_t){
         .gpio = HOJA_BTN1_PIN,
-        .led_enabled = &_conn_led_enabled,
+        .led_enabled = &_mode_led_enabled,
     };
     _btn2 = (dongle_rgb_btn_t){
         .gpio = HOJA_BTN2_PIN,
-        .led_enabled = &_mode_led_enabled,
+        .led_enabled = &_conn_led_enabled,
     };
 
     _mode = DONGLE_MODE_N64;
