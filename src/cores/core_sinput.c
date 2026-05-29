@@ -8,15 +8,6 @@
 #include "cores/cores.h"
 #include "cores/core_usb.h"
 #include "transport/transport.h"
-#include "utilities/crosscore_snapshot.h"
-
-typedef struct
-{
-    uint8_t report[64];
-} core_sinput_report_s;
-
-SNAPSHOT_TYPE(sinput_report, core_sinput_report_s);
-static snapshot_sinput_report_t _snap_sinput;
 
 #define SINPUT_DEFAULT_VID 0x2E8A
 #define SINPUT_DEFAULT_PID 0x10C6
@@ -131,39 +122,26 @@ static void _core_sinput_output_tunnel(const uint8_t *data, uint16_t len)
     }
 }
 
-static void _core_sinput_input_tunnel(const uint8_t *data, uint16_t len)
-{
-    if (len != SINPUT_REPORT_LEN_INPUT || data[0] != REPORT_ID_SINPUT_INPUT)
-    {
-        return;
-    }
-    snapshot_sinput_report_write(&_snap_sinput, (core_sinput_report_s *)data);
-}
-
 static bool _core_sinput_get_generated_report(core_report_s *out)
 {
     out->reportformat = CORE_REPORTFORMAT_SINPUT;
     out->size = SINPUT_REPORT_LEN_INPUT;
 
-    if (_si_current_command == SINPUT_COMMAND_FEATURES)
+    uint16_t len = 0;
+    if (!dongle_wlan_read_next(out->data, &len) || len != SINPUT_REPORT_LEN_INPUT)
     {
-        uint8_t reliable[SINPUT_REPORT_LEN_INPUT];
-        uint16_t rel_len = 0;
-        if (dongle_wlan_peek_reliable(reliable, &rel_len) &&
-            rel_len == SINPUT_REPORT_LEN_INPUT &&
-            reliable[0] == REPORT_ID_SINPUT_INPUT_CMDDAT &&
-            reliable[1] == SINPUT_COMMAND_FEATURES)
-        {
-            memcpy(out->data, reliable, SINPUT_REPORT_LEN_INPUT);
-            memcpy(_sinput_features_report_data, reliable, SINPUT_REPORT_LEN_INPUT);
-            _sinput_features_report_got = true;
-            dongle_wlan_consume_reliable();
-        }
-        _si_current_command = 0;
         return true;
     }
 
-    snapshot_sinput_report_read(&_snap_sinput, (core_sinput_report_s *)out->data);
+    if (_si_current_command == SINPUT_COMMAND_FEATURES &&
+        out->data[0] == REPORT_ID_SINPUT_INPUT_CMDDAT &&
+        out->data[1] == SINPUT_COMMAND_FEATURES)
+    {
+        memcpy(_sinput_features_report_data, out->data, SINPUT_REPORT_LEN_INPUT);
+        _sinput_features_report_got = true;
+        _si_current_command = 0;
+    }
+
     return true;
 }
 
@@ -187,7 +165,7 @@ bool core_sinput_init(core_params_s *params, const dongle_wake_s *wake)
     params->hid_device = &_sinput_hid_device;
     params->core_report_format = CORE_REPORTFORMAT_SINPUT;
     params->core_report_generator = _core_sinput_get_generated_report;
-    params->core_input_report_tunnel = _core_sinput_input_tunnel;
+    params->core_input_report_tunnel = NULL;
     params->core_output_report_tunnel = _core_sinput_output_tunnel;
     params->core_deinit = _core_sinput_deinit;
     params->core_task = _core_sinput_task;

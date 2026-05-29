@@ -8,7 +8,6 @@
 #include "cores/cores.h"
 #include "dongle_wlan.h"
 #include "transport/transport.h"
-#include "utilities/crosscore_snapshot.h"
 
 #define XINPUT_REPORT_LEN 20
 
@@ -16,9 +15,6 @@ typedef struct
 {
     uint8_t report[XINPUT_REPORT_LEN];
 } core_xinput_report_s;
-
-SNAPSHOT_TYPE(xinput_report, core_xinput_report_s);
-static snapshot_xinput_report_t _snap_xinput;
 
 static hoja_usb_device_descriptor_t _xinput_device_descriptor = {
     .bLength = sizeof(hoja_usb_device_descriptor_t),
@@ -73,20 +69,22 @@ static void _xinput_apply_wake(const dongle_wake_s *wake, core_hid_device_t *hid
     }
 }
 
-static void _xinput_input_tunnel(const uint8_t *data, uint16_t len)
-{
-    if (len != XINPUT_REPORT_LEN)
-    {
-        return;
-    }
-    snapshot_xinput_report_write(&_snap_xinput, (core_xinput_report_s *)data);
-}
+static core_xinput_report_s _last_report;
 
 static bool _xinput_get_generated_report(core_report_s *out)
 {
     out->reportformat = CORE_REPORTFORMAT_XINPUT;
     out->size = XINPUT_REPORT_LEN;
-    snapshot_xinput_report_read(&_snap_xinput, (core_xinput_report_s *)out->data);
+
+    uint16_t len = 0;
+    if (dongle_wlan_read_next(out->data, &len) && len == out->size)
+    {
+        memcpy(&_last_report, out->data, len);
+    }
+    else
+    {
+        memcpy(out->data, &_last_report, out->size);
+    }
     return true;
 }
 
@@ -115,7 +113,7 @@ bool core_xinput_init(core_params_s *params, const dongle_wake_s *wake)
     params->hid_device = &_xinput_hid_device;
     params->core_report_format = CORE_REPORTFORMAT_XINPUT;
     params->core_report_generator = _xinput_get_generated_report;
-    params->core_input_report_tunnel = _xinput_input_tunnel;
+    params->core_input_report_tunnel = NULL;
     params->core_output_report_tunnel = _xinput_output_tunnel;
     params->core_deinit = _xinput_deinit;
     params->core_task = _xinput_task;

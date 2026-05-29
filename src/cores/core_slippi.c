@@ -12,7 +12,6 @@
 #include "cores/core_usb.h"
 #include "dongle_wlan.h"
 #include "transport/transport.h"
-#include "utilities/crosscore_snapshot.h"
 
 #include "hardware/watchdog.h"
 
@@ -20,9 +19,6 @@ typedef struct
 {
     uint8_t report[37];
 } slippi_report_s;
-
-SNAPSHOT_TYPE(slippi_report, slippi_report_s);
-snapshot_slippi_report_t _snap_slippi;
 
 /**** GameCube Adapter HID Report Descriptor ****/
 const uint8_t _gc_hid_report_descriptor[] = {
@@ -136,12 +132,7 @@ const core_hid_device_t _slippi_hid_device = {
     .device_descriptor      = &_slippi_device_descriptor,
 };
 
-// WLAN Packets INPUT from gamepad we receive are tunneled into here
-void _core_slippi_input_tunnel(const uint8_t *data, uint16_t len)
-{
-    if(len!=37) return;
-    snapshot_slippi_report_write(&_snap_slippi, (slippi_report_s*)data);
-}
+// WLAN input arrives via dongle_wlan_read_next() in get_generated_report.
 
 void _core_slippi_output_tunnel(const uint8_t *data, uint16_t len)
 {    
@@ -197,7 +188,8 @@ bool _core_slippi_get_generated_report(core_report_s *out)
 
     if (dongle_current_status()->connection == DONGLE_CONN_CONNECTED)
     {
-        snapshot_slippi_report_read(&_snap_slippi, (slippi_report_s*)out->data);
+        uint16_t len = 0;
+        dongle_wlan_read_next(out->data, &len);
     }
     return true;
 }
@@ -226,7 +218,7 @@ bool core_slippi_init(core_params_s *params, const dongle_wake_s *wake)
     params->core_report_format = CORE_REPORTFORMAT_SLIPPI;
     params->core_report_generator = _core_slippi_get_generated_report;
     params->core_output_report_tunnel = _core_slippi_output_tunnel;
-    params->core_input_report_tunnel = _core_slippi_input_tunnel;
+    params->core_input_report_tunnel = NULL;
     params->core_deinit = _core_slippi_deinit;
     params->core_task = _core_slippi_task;
 

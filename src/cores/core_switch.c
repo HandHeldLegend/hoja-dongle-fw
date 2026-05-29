@@ -9,7 +9,6 @@
 #include "cores/cores.h"
 #include "dongle_wlan.h"
 #include "transport/transport.h"
-#include "utilities/crosscore_snapshot.h"
 
 #define SWPRO_INPUT_LEN 64
 
@@ -17,9 +16,6 @@ typedef struct
 {
     uint8_t report[SWPRO_INPUT_LEN];
 } core_switch_report_s;
-
-SNAPSHOT_TYPE(switch_report, core_switch_report_s);
-static snapshot_switch_report_t _snap_switch;
 
 static hoja_usb_device_descriptor_t _switch_device_descriptor;
 static core_hid_device_t _switch_hid_device;
@@ -95,20 +91,22 @@ static void _switch_apply_wake(const dongle_wake_s *wake, core_hid_device_t *hid
     }
 }
 
-static void _switch_input_tunnel(const uint8_t *data, uint16_t len)
-{
-    if (len != SWPRO_INPUT_LEN)
-    {
-        return;
-    }
-    snapshot_switch_report_write(&_snap_switch, (core_switch_report_s *)data);
-}
+static core_switch_report_s _last_report;
 
 static bool _switch_get_generated_report(core_report_s *out)
 {
     out->reportformat = CORE_REPORTFORMAT_SWPRO;
     out->size = SWPRO_INPUT_LEN;
-    snapshot_switch_report_read(&_snap_switch, (core_switch_report_s *)out->data);
+
+    uint16_t len = 0;
+    if (dongle_wlan_read_next(out->data, &len) && len == out->size)
+    {
+        memcpy(&_last_report, out->data, len);
+    }
+    else
+    {
+        memcpy(out->data, &_last_report, out->size);
+    }
     return true;
 }
 
@@ -141,7 +139,7 @@ bool core_switch_init(core_params_s *params, const dongle_wake_s *wake)
     params->hid_device = &_switch_hid_device;
     params->core_report_format = CORE_REPORTFORMAT_SWPRO;
     params->core_report_generator = _switch_get_generated_report;
-    params->core_input_report_tunnel = _switch_input_tunnel;
+    params->core_input_report_tunnel = NULL;
     params->core_output_report_tunnel = _switch_output_tunnel;
     params->core_deinit = _switch_deinit;
     params->core_task = _switch_task;
