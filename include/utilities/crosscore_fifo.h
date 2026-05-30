@@ -1,4 +1,24 @@
-// crosscore_fifo.h
+/*
+ * X-macro template for lock-free single-producer/single-consumer cross-core FIFOs.
+ *
+ * Copyright (c) 2026 Hand Held Legend, LLC
+ * Author: Mitchell Cairns
+ *
+ * SPDX-License-Identifier: MIT-0
+ */
+
+/**
+ * @file crosscore_fifo.h
+ * @brief Generates typed SPSC ring-buffer FIFOs for passing data between cores.
+ *
+ * CROSSCORE_FIFO_TYPE(name, type, len) expands to a FIFO struct plus inline
+ * push/pop functions for a given element type. The FIFO is lock-free and
+ * relies solely on single-writer ownership of each index plus release/acquire
+ * ordering, which makes it safe on the RP2040 (Cortex-M0+) where atomic
+ * read-modify-write across cores is unavailable. See the macro-contract notes
+ * below for the strict ownership and sizing rules callers must obey.
+ */
+
 #pragma once
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -38,7 +58,12 @@ typedef struct {                                                               \
 } fifo_##name##_t;                                                             \
                                                                                \
 /* PRODUCER-CORE ONLY. Must never be called from the consumer core.            \
- * Returns false (and drops the element) when the FIFO is full. */             \
+ * Returns false (and drops the element) when the FIFO is full.                \
+ *   - tail is loaded relaxed (this core is its only writer).                  \
+ *   - head is loaded acquire so we observe the consumer's freed slots.        \
+ *   - the slot is filled BEFORE tail is published with a release store, so the \
+ *     consumer can never read a slot before its data is visible.              \
+ * Fullness is (tail - head) >= len using wrap-safe unsigned subtraction. */    \
 static inline bool fifo_##name##_push(fifo_##name##_t *f, const type *src) {   \
     unsigned int t = atomic_load_explicit(&f->tail, memory_order_relaxed);     \
     unsigned int h = atomic_load_explicit(&f->head, memory_order_acquire);     \
@@ -49,7 +74,12 @@ static inline bool fifo_##name##_push(fifo_##name##_t *f, const type *src) {   \
 }                                                                              \
                                                                                \
 /* CONSUMER-CORE ONLY. Must never be called from the producer core.            \
- * Returns false when the FIFO is empty. */                                    \
+ * Returns false when the FIFO is empty.                                       \
+ *   - head is loaded relaxed (this core is its only writer).                  \
+ *   - tail is loaded acquire to pair with the producer's release store, so     \
+ *     the slot data is guaranteed visible before we copy it out.              \
+ *   - head is advanced with a release store so the producer sees the slot is   \
+ *     free only after we have finished reading it. */                         \
 static inline bool fifo_##name##_pop(fifo_##name##_t *f, type *dst) {          \
     unsigned int h = atomic_load_explicit(&f->head, memory_order_relaxed);     \
     unsigned int t = atomic_load_explicit(&f->tail, memory_order_acquire);     \

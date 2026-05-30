@@ -1,3 +1,25 @@
+/*
+ * TinyUSB hardware abstraction layer for the dongle USB transport.
+ *
+ * Copyright (c) 2026 Hand Held Legend, LLC
+ * Author: Mitchell Cairns
+ *
+ * SPDX-License-Identifier: MIT-0
+ */
+
+/**
+ * @file usb_hal.c
+ * @brief TinyUSB device glue: descriptors, class drivers, HID I/O, and the SOF link pump.
+ *
+ * This layer adapts the dongle's report cores to TinyUSB. It supplies the
+ * device/configuration/string/BOS descriptor callbacks (including the Windows
+ * MS OS 1.0/2.0 and WebUSB plumbing), implements custom Slippi and XInput USBD
+ * class drivers alongside the stock HID path, and routes inbound/outbound HID
+ * reports. The Start-of-Frame callback both paces host polling and schedules the
+ * core1 wireless link pump, while the transport hooks (init/stop/task) bring the
+ * USB device up or down and publish connect/idle status to core0.
+ */
+
 #include <hoja_usb.h>
 
 #include <tusb_config.h>
@@ -6,7 +28,8 @@
 
 #include "cores/cores.h"
 
-#include "hdongle.h"
+#include "core0transport.h"
+#include "core1wlan.h"
 #include "pico/time.h"
 
 #include "hardware/structs/usb.h"
@@ -27,6 +50,8 @@
 #define USB_PRODUCT HOJA_PRODUCT
 #endif
 
+/* USB string descriptor table; indices are referenced by other descriptors and
+ * by tud_descriptor_string_cb(). Entry 0 is the language ID, not a string. */
 const char *global_string_descriptor[] = {
     // array of pointer to string descriptors
     (char[]){0x09, 0x04}, // 0: is supported language is English (0x0409)
@@ -36,13 +61,16 @@ const char *global_string_descriptor[] = {
     "Hoja Gamepad"        // 4 Identifier for GC Mode
 };
 
+/* Report/ready hooks selected per report format at transport_usb_init(), so the
+ * generic task loop can poll readiness and push reports without knowing the
+ * active class driver (HID / XInput / Slippi). */
 typedef bool (*usb_hal_report_cb_t)(uint8_t report_id, void const *report, uint16_t len);
 typedef bool (*usb_hal_ready_cb_t)(void);
 
 usb_hal_report_cb_t _usb_hal_report_cb = NULL;
 usb_hal_ready_cb_t _usb_hal_ready_cb = NULL;
-core_params_s *_usb_core_params = NULL;
-const core_hid_device_t *_usbhal_hiddev = NULL;
+core_params_s *_usb_core_params = NULL;        /* Active core config (report format, tunnels, HID device). */
+const core_hid_device_t *_usbhal_hiddev = NULL; /* Descriptor set for the active core. */
 
 //--------------------------------------------------------------------+
 // Slippi Types Pre-Defines
@@ -73,6 +101,12 @@ typedef struct
 CFG_TUSB_MEM_SECTION static slippid_interface_t _slippid_itf[1];
 
 /*------------- Helpers -------------*/
+
+/**
+ * @brief Map a USB interface number to its Slippi interface slot index.
+ * @param itf_num Interface number from a control request.
+ * @return Slot index into _slippid_itf, or 0xFF if no slot matches.
+ */
 static inline uint8_t slippi_get_index_by_itfnum(uint8_t itf_num)
 {
     for (uint8_t i = 0; i < CFG_TUD_GC; i++)
@@ -87,6 +121,12 @@ static inline uint8_t slippi_get_index_by_itfnum(uint8_t itf_num)
 //--------------------------------------------------------------------+
 // APPLICATION API
 //--------------------------------------------------------------------+
+
+/**
+ * @brief Whether the Slippi IN endpoint of a given instance can accept a report.
+ * @param instance Slippi interface instance index.
+ * @return true if the device is mounted and the IN endpoint is idle (claimable).
+ */
 bool tud_slippi_n_ready(uint8_t instance)
 {
     uint8_t const rhport = 0;
@@ -94,11 +134,26 @@ bool tud_slippi_n_ready(uint8_t instance)
     return tud_ready() && (ep_in != 0) && !usbd_edpt_busy(rhport, ep_in);
 }
 
+/** @brief Convenience wrapper for tud_slippi_n_ready() on instance 0. */
 bool tud_slippi_ready()
 {
     return tud_slippi_n_ready(0);
 }
 
+/**
+ * @brief Queue a Slippi HID report on a given instance's IN endpoint.
+ *
+ * Claims the IN endpoint, packs report_id into byte 0 and the payload after it,
+ * then starts a fixed-size transfer. The payload is always copied as a full
+ * CFG_TUD_GC_TX_BUFSIZE-1 block regardless of @p len (GC/Slippi uses fixed-size
+ * reports).
+ *
+ * @param instance  Slippi interface instance index.
+ * @param report_id Report ID written as the first byte of the buffer.
+ * @param report    Pointer to the report payload.
+ * @param len       Unused; transfer size is fixed at CFG_TUD_GC_TX_BUFSIZE.
+ * @return true if the transfer was submitted, false if the endpoint claim failed.
+ */
 bool tud_slippi_n_report(uint8_t instance, uint8_t report_id, void const *report, uint16_t len)
 {
     uint8_t const rhport = 0;
@@ -113,16 +168,19 @@ bool tud_slippi_n_report(uint8_t instance, uint8_t report_id, void const *report
     return usbd_edpt_xfer(rhport, p_hid->ep_in, p_hid->epin_buf, CFG_TUD_GC_TX_BUFSIZE);
 }
 
+/** @brief Convenience wrapper for tud_slippi_n_report() on instance 0. */
 bool tud_slippi_report(uint8_t report_id, void const *report, uint16_t len)
 {
     return tud_slippi_n_report(0, report_id, report, len);
 }
 
+/** @brief Return the boot interface protocol negotiated for a Slippi instance. */
 uint8_t tud_slippi_n_interface_protocol(uint8_t instance)
 {
     return _slippid_itf[instance].itf_protocol;
 }
 
+/** @brief Return the HID protocol mode (boot/report) for a Slippi instance. */
 uint8_t tud_slippi_n_get_protocol(uint8_t instance)
 {
     return _slippid_itf[instance].protocol_mode;
@@ -131,17 +189,38 @@ uint8_t tud_slippi_n_get_protocol(uint8_t instance)
 //--------------------------------------------------------------------+
 // USBD-CLASS API
 //--------------------------------------------------------------------+
+
+/**
+ * @brief TinyUSB class reset hook: clear all Slippi interface state.
+ *
+ * Invoked by the USBD core on bus reset / unplug for this class driver.
+ */
 void slippid_reset(uint8_t rhport)
 {
     (void)rhport;
     tu_memclr(_slippid_itf, sizeof(_slippid_itf));
 }
 
+/** @brief TinyUSB class init hook; invoked once when the driver is registered. */
 void slippid_init(void)
 {
     slippid_reset(0);
 }
 
+/**
+ * @brief TinyUSB class open hook: claim the interface and parse its descriptors.
+ *
+ * Called during enumeration for each interface. Only opens when the active core
+ * is in Slippi report format; otherwise returns 0 so TinyUSB skips this driver.
+ * Walks the interface -> HID -> endpoint descriptor chain, opens the endpoint
+ * pair, caches the HID/report descriptor info, and primes the OUT endpoint to
+ * receive.
+ *
+ * @param rhport   Root hub port.
+ * @param desc_itf Interface descriptor at the current parse position.
+ * @param max_len  Remaining length available in the configuration descriptor.
+ * @return Number of descriptor bytes consumed, or 0 if this driver declines.
+ */
 uint16_t slippid_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     // Do not open if we aren't in Slippi reporting mode
@@ -202,9 +281,19 @@ uint16_t slippid_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf, uin
     return drv_len;
 }
 
-// Invoked when a control transfer occurred on an interface of this class
-// Driver response accordingly to the request and the transfer stage (setup/data/ack)
-// return false to stall control endpoint (e.g unsupported request)
+/**
+ * @brief TinyUSB class control-transfer hook for the Slippi interface.
+ *
+ * Invoked when a control transfer targets this class. Handles standard
+ * GET_DESCRIPTOR (HID and report descriptors) plus the HID class requests
+ * (GET/SET_REPORT, GET/SET_IDLE, GET/SET_PROTOCOL) across the setup/data/ack
+ * stages.
+ *
+ * @param rhport  Root hub port.
+ * @param stage   Control transfer stage (setup/data/ack).
+ * @param request The USB control request.
+ * @return true to continue/complete, false to stall an unsupported request.
+ */
 bool slippid_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const *request)
 {
     TU_VERIFY(request->bmRequestType_bit.recipient == TUSB_REQ_RCPT_INTERFACE);
@@ -351,6 +440,19 @@ bool slippid_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request
     return true;
 }
 
+/**
+ * @brief TinyUSB class transfer-complete hook for the Slippi interface.
+ *
+ * Invoked when an IN or OUT transfer finishes. For the IN endpoint it signals
+ * report completion; for the OUT endpoint it delivers the received report and
+ * re-arms the OUT endpoint for the next packet.
+ *
+ * @param rhport        Root hub port.
+ * @param ep_addr       Endpoint address that completed.
+ * @param result        Transfer result (unused).
+ * @param xferred_bytes Number of bytes transferred.
+ * @return Always true.
+ */
 bool slippid_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes)
 {
     (void)result;
@@ -385,6 +487,7 @@ bool slippid_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint
     return true;
 }
 
+/* USBD class driver vtable that registers the Slippi interface with TinyUSB. */
 const usbd_class_driver_t tud_slippi_driver =
     {
 #if CFG_TUSB_DEBUG >= 2
@@ -421,17 +524,35 @@ typedef struct
 
 CFG_TUSB_MEM_SECTION static xinputd_interface_t _xinputd_itf;
 
+/**
+ * @brief TinyUSB class reset hook: clear XInput interface state.
+ *
+ * Invoked by the USBD core on bus reset / unplug for this class driver.
+ */
 void xinputd_reset(uint8_t rhport)
 {
     (void)rhport;
     tu_memclr(&_xinputd_itf, sizeof(_xinputd_itf));
 }
 
+/** @brief TinyUSB class init hook; invoked once when the driver is registered. */
 void xinputd_init(void)
 {
     xinputd_reset(0);
 }
 
+/**
+ * @brief TinyUSB class open hook: claim the XInput interface and its endpoints.
+ *
+ * Called during enumeration. Verifies the Microsoft XInput subclass (0x5D),
+ * then iterates the interface's endpoint descriptors, opening each and caching
+ * the IN/OUT endpoint addresses by direction.
+ *
+ * @param rhport   Root hub port.
+ * @param desc_itf Interface descriptor at the current parse position.
+ * @param max_len  Remaining length available in the configuration descriptor.
+ * @return Number of descriptor bytes consumed.
+ */
 uint16_t xinputd_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     const char *TAG = "xinputd_open";
@@ -470,11 +591,31 @@ uint16_t xinputd_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf, uin
     return drv_len;
 }
 
+/**
+ * @brief TinyUSB class control-transfer hook for XInput.
+ *
+ * XInput has no class-specific control requests we need to service, so this
+ * accepts everything (never stalls).
+ *
+ * @return Always true.
+ */
 bool xinputd_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const *request)
 {
     return true;
 }
 
+/**
+ * @brief TinyUSB class transfer-complete hook for XInput.
+ *
+ * On IN completion, signals report completion. On OUT completion, delivers the
+ * received report (rumble/LED) and re-arms the OUT endpoint.
+ *
+ * @param rhport        Root hub port.
+ * @param ep_addr       Endpoint address that completed.
+ * @param result        Transfer result (unused).
+ * @param xferred_bytes Number of bytes transferred.
+ * @return Always true.
+ */
 bool xinputd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes)
 {
     (void)result;
@@ -499,6 +640,13 @@ bool xinputd_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint
     return true;
 }
 
+/**
+ * @brief Manually pump the XInput OUT endpoint so host->device data is received.
+ *
+ * XInput has no SET_REPORT control path for rumble; instead the host sends data
+ * on the interrupt OUT endpoint. This claims and re-arms that endpoint when it
+ * is idle so xinputd_xfer_cb() will fire on the next OUT packet.
+ */
 void tud_xinput_getout(void)
 {
     if (tud_ready() && (!usbd_edpt_busy(0, _xinputd_itf.ep_out)))
@@ -510,6 +658,19 @@ void tud_xinput_getout(void)
 }
 
 // USER API ACCESSIBLE
+
+/**
+ * @brief Queue an XInput report on the IN endpoint (instance 0).
+ *
+ * Wakes the host first if the bus is suspended, then claims endpoint 0x81,
+ * packs report_id into byte 0 followed by a fixed-size payload, submits the
+ * transfer, and finally re-arms the OUT endpoint via tud_xinput_getout().
+ *
+ * @param report_id Report ID written as the first byte of the buffer.
+ * @param report    Pointer to the report payload.
+ * @param len       Unused; transfer size is fixed at CFG_TUD_XINPUT_EP_BUFSIZE.
+ * @return Result of submitting the IN transfer.
+ */
 bool tud_n_xinput_report(uint8_t report_id, void const *report, uint16_t len)
 {
     uint8_t const rhport = 0;
@@ -535,11 +696,16 @@ bool tud_n_xinput_report(uint8_t report_id, void const *report, uint16_t len)
     return out;
 }
 
+/** @brief Convenience wrapper for tud_n_xinput_report() on instance 0. */
 bool tud_xinput_report(uint8_t report_id, void const *report, uint16_t len)
 {
     return tud_n_xinput_report(report_id, report, len);
 }
 
+/**
+ * @brief Whether the XInput IN endpoint can accept a report.
+ * @return true if mounted and the IN endpoint is open and idle (claimable).
+ */
 bool tud_xinput_ready(void)
 {
     uint8_t const rhport = 0;
@@ -547,6 +713,7 @@ bool tud_xinput_ready(void)
     return tud_ready() && (ep_in != 0) && !usbd_edpt_busy(rhport, ep_in);
 }
 
+/* USBD class driver vtable that registers the XInput interface with TinyUSB. */
 const usbd_class_driver_t tud_xinput_driver =
     {
 #if CFG_TUSB_DEBUG >= 2
@@ -565,6 +732,16 @@ const usbd_class_driver_t tud_xinput_driver =
 //--------------------------------------------------------------------+
 // TinyUSB Driver Get Definition
 //--------------------------------------------------------------------+
+/**
+ * @brief TinyUSB hook returning the application class driver to register.
+ *
+ * Invoked by TinyUSB at init to discover app-defined class drivers. Increments
+ * the driver count and selects the Slippi or XInput driver based on the active
+ * core's report format (XInput is the default).
+ *
+ * @param[in,out] driver_count Running count of app drivers; incremented here.
+ * @return Pointer to the selected class driver vtable.
+ */
 usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *driver_count)
 {
     *driver_count += 1;
@@ -588,6 +765,7 @@ usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *driver_count)
 //--------------------------------------------------------------------+
 #pragma region MS_OS_DESC
 
+/* Scratch buffer for UTF-16LE string descriptors returned to the host. */
 static uint16_t _desc_str[64];
 
 enum
@@ -683,6 +861,13 @@ uint8_t const gc_desc_bos[] = {
     0x00                      // Doesn’t support alternate enumeration
 };
 
+/**
+ * @brief TinyUSB hook returning the Binary Object Store (BOS) descriptor.
+ *
+ * Invoked when the host requests the BOS descriptor (used to advertise WebUSB /
+ * MS OS 2.0 support). Returns the GC/Slippi-specific BOS in Slippi mode,
+ * otherwise the default WebUSB+MS OS 2.0 BOS. Returns 0 if no core is active.
+ */
 uint8_t const *tud_descriptor_bos_cb(void)
 {
     if(_usb_core_params)
@@ -782,14 +967,25 @@ uint8_t const gc_desc_ms_os_20[] =
 TU_VERIFY_STATIC(sizeof(desc_ms_os_20) == MS_OS_20_DESC_LEN, "Incorrect size");
 TU_VERIFY_STATIC(sizeof(gc_desc_ms_os_20) == GC_MS_OS_20_DESC_LEN, "Incorrect size");
 
-// Invoked when received GET STRING DESCRIPTOR request
-// Application return pointer to descriptor, whose contents must exist long enough for transfer to complete
+/**
+ * @brief TinyUSB hook returning a string descriptor, built into _desc_str.
+ *
+ * Invoked on GET STRING DESCRIPTOR. Index 0xEE is the special Microsoft OS 1.0
+ * descriptor (advertises the vendor request code used to fetch MS OS feature
+ * descriptors); index 0 returns the language ID; all other indices convert the
+ * matching ASCII string from global_string_descriptor[] into UTF-16LE.
+ *
+ * @param index String descriptor index requested by the host.
+ * @param langid Requested language ID (unused).
+ * @return Pointer to the UTF-16LE descriptor; valid until the next call.
+ */
 uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
 {
     (void)langid;
 
     uint8_t chr_count;
 
+    /* 0xEE: emit the MS OS 1.0 string descriptor (repacked to UTF-16LE words). */
     if (index == 0xEE)
     {
         for (int i = 0, j = 0; i < sizeof(MS_OS_Descriptor); i += 2, j++)
@@ -827,7 +1023,12 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
     return _desc_str;
 }
 
-// Vendor Device Class CB for receiving data
+/**
+ * @brief TinyUSB vendor class hook: data received on the vendor OUT endpoint.
+ *
+ * Unused here; the vendor interface exists only to carry the MS OS / WebUSB
+ * control descriptors, not bulk data.
+ */
 void tud_vendor_rx_cb(uint8_t itf, uint8_t const *buffer, uint16_t bufsize)
 {
     // UNUSED
@@ -869,9 +1070,19 @@ uint8_t MS_Extended_Feature_Descriptor[] =
         'B', 0, '6', 0, 'F', 0, 'D', 0, 'E', 0, '1', 0, 'C', 0, '}', 0,
         0x00, 0x00, 0x00, 0x00};
 
-// Invoked when a control transfer occurred on an interface of this class
-// Driver response accordingly to the request and the transfer stage (setup/data/ack)
-// return false to stall control endpoint (e.g unsupported request)
+/**
+ * @brief TinyUSB vendor class control-transfer hook (MS OS / WebUSB requests).
+ *
+ * Invoked for vendor control transfers. On the setup stage it serves the
+ * Microsoft OS 1.0 compatible-ID / extended-feature descriptors (wIndex 4/5),
+ * the WebUSB request (unused), and the MS OS 2.0 descriptor set (wIndex 7,
+ * GC/Slippi vs default variant). Only the SETUP stage carries work here.
+ *
+ * @param rhport  Root hub port.
+ * @param stage   Control transfer stage.
+ * @param request The vendor control request.
+ * @return true to continue/complete, false to stall an unsupported request.
+ */
 bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const *request)
 {
     // nothing to with DATA & ACK stage
@@ -932,6 +1143,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
 
                 if (_usb_core_params)
                 {
+                    /* Total length lives at byte offset 8 of the MS OS 2.0 set header. */
                     if (_usb_core_params->core_report_format == CORE_REPORTFORMAT_SLIPPI)
                     {
                         memcpy(&total_len, gc_desc_ms_os_20 + 8, 2);
@@ -980,14 +1192,18 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
 /***********************************************/
 /********* TinyUSB HID callbacks ***************/
 
-volatile uint8_t ms_counter = 0;
-uint32_t _usb_frames = 8;
+volatile uint8_t ms_counter = 0; /* SOF (1 ms) tick counter, wraps every _usb_frames frames. */
+uint32_t _usb_frames = 8;        /* Host poll period in SOF frames (set per report format). */
 // Whether USB is ready for another input
-volatile bool _usb_ready = false;
-volatile bool _usb_sendit = false;
+volatile bool _usb_ready = false; /* IN endpoint ready to accept the next report. */
+volatile bool _usb_sendit = false; /* SOF cadence reached: time to send a report from the task loop. */
 
-// Invoked when received GET DEVICE DESCRIPTOR
-// Application return pointer to descriptor
+/**
+ * @brief TinyUSB hook returning the device descriptor.
+ *
+ * Invoked on GET DEVICE DESCRIPTOR. Returns the active core's device
+ * descriptor, or NULL if no HID device is currently configured.
+ */
 uint8_t const *tud_descriptor_device_cb(void)
 {
     // TO DO set connected on transport layer
@@ -1000,9 +1216,14 @@ uint8_t const *tud_descriptor_device_cb(void)
     return NULL;
 }
 
-// Invoked when received GET CONFIGURATION DESCRIPTOR
-// Application return pointer to descriptor
-// Descriptor contents must exist long enough for transfer to complete
+/**
+ * @brief TinyUSB hook returning the configuration descriptor.
+ *
+ * Invoked on GET CONFIGURATION DESCRIPTOR. Returns the active core's config
+ * descriptor; its contents must remain valid for the whole transfer.
+ *
+ * @param index Configuration index (unused; single configuration).
+ */
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index)
 {
     if (_usbhal_hiddev)
@@ -1013,9 +1234,14 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index)
     return 0;
 }
 
-// Invoked when received GET_REPORT control request
-// Application must fill buffer report's content and return its length.
-// Return zero will cause the stack to STALL request
+/**
+ * @brief TinyUSB HID hook for GET_REPORT control requests.
+ *
+ * Reports are pushed proactively over the IN endpoint, so this returns 0 to
+ * STALL host-initiated GET_REPORT requests.
+ *
+ * @return Always 0 (stall).
+ */
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type, uint8_t *buffer, uint16_t reqlen)
 {
     (void)instance;
@@ -1026,8 +1252,12 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_t
     return 0;
 }
 
-// Invoked when received GET HID REPORT DESCRIPTOR request
-// Application return pointer to descriptor, whose contents must exist long enough for transfer to complete
+/**
+ * @brief TinyUSB HID hook returning the HID report descriptor.
+ *
+ * Invoked on GET HID REPORT DESCRIPTOR. Returns the active core's report
+ * descriptor (if any); contents must remain valid for the whole transfer.
+ */
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
 {
     (void)instance;
@@ -1041,7 +1271,11 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
     return 0;
 }
 
-// Invoked when report complete
+/**
+ * @brief TinyUSB HID hook invoked when an IN report transfer completes.
+ *
+ * Nothing to do; the task loop drives the next report based on SOF cadence.
+ */
 void tud_hid_report_complete_cb(uint8_t instance, uint8_t const *report, uint16_t len)
 {
     (void)instance;
@@ -1049,8 +1283,13 @@ void tud_hid_report_complete_cb(uint8_t instance, uint8_t const *report, uint16_
     (void)len;
 }
 
-// Invoked when received SET_REPORT control request or
-// received data on OUT endpoint ( Report ID = 0, Type = 0 )
+/**
+ * @brief TinyUSB HID hook for SET_REPORT control requests and OUT endpoint data.
+ *
+ * Invoked on SET_REPORT or when data arrives on the OUT endpoint
+ * (report_id = 0, type = 0). For host OUTPUT reports it forwards the payload to
+ * the active core's output report tunnel (e.g. rumble/feature handling).
+ */
 void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
                            hid_report_type_t report_type, uint8_t const *buffer, uint16_t bufsize)
 {
@@ -1063,12 +1302,43 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
     }
 }
 
+/**
+ * @brief TinyUSB hook invoked when the device is mounted (enumerated) by a host.
+ *
+ * Toggles the SOF callback off/on to guarantee it is freshly enabled, then
+ * publishes CONNECTED transport status to core0.
+ */
 void tud_mount_cb()
 {
+    /* Force a clean re-enable of the SOF callback for the new connection. */
     tud_sof_cb_enable(false);
     tud_sof_cb_enable(true);
+    core0_set_transport_status(DONGLE_TRANSPORT_CONNECTED);
 }
 
+/**
+ * @brief TinyUSB hook invoked when the device is unmounted (unplugged/reset).
+ *
+ * Reports IDLE transport status to core0.
+ */
+void tud_umount_cb()
+{
+    core0_set_transport_status(DONGLE_TRANSPORT_IDLE);
+}
+
+/**
+ * @brief TinyUSB Start-of-Frame hook (~1 kHz) that paces TX and the link pump.
+ *
+ * Each 1 ms SOF advances ms_counter. _usb_frames sets the effective host poll
+ * period, so a report is emitted once every _usb_frames frames. On the frame
+ * that completes a poll period it flags _usb_sendit and stamps the poll time
+ * for the wireless link pump; at the half-period mark it nudges the link pump
+ * so wireless TX is scheduled relative to the host poll. When polling every
+ * frame (_usb_frames == 1) the half-period branch can't run, so the pump is
+ * scheduled here instead.
+ *
+ * @param frame_count_ext Extended frame counter (unused).
+ */
 void tud_sof_cb(uint32_t frame_count_ext)
 {
     (void)frame_count_ext;
@@ -1077,19 +1347,21 @@ void tud_sof_cb(uint32_t frame_count_ext)
 
     ms_counter++;
 
+    /* End of a poll period: time to send a report and mark the poll instant. */
     if (ms_counter >= _usb_frames)
     {
         ms_counter = 0;
         if (_usb_frames == 1)
         {
-            hdongle_link_pump_schedule_from_poll(now_us);
+            core1_link_pump_schedule_from_poll(now_us);
         }
-        hdongle_link_pump_mark_sent(now_us);
+        core1_link_pump_mark_sent(now_us);
         _usb_sendit = true;
     }
+    /* Half-way through the poll period: schedule the link pump to interleave. */
     else if (ms_counter == (_usb_frames >> 1))
     {
-        hdongle_link_pump_schedule_from_poll(now_us);
+        core1_link_pump_schedule_from_poll(now_us);
     }
 }
 
@@ -1098,20 +1370,39 @@ void tud_sof_cb(uint32_t frame_count_ext)
 /***********************************************/
 /********* Transport Defines *******************/
 
+/**
+ * @brief Tear down the USB transport.
+ *
+ * Clears the report hook, resets link-pump timing and the SOF counter, reports
+ * IDLE transport status to core0, and deinitializes the TinyUSB device stack.
+ */
 void transport_usb_stop()
 {
     _usb_hal_report_cb = NULL;
-    hdongle_link_pump_reset_timing();
+    core1_link_pump_reset_timing();
     ms_counter = 0;
+    core0_set_transport_status(DONGLE_TRANSPORT_IDLE);
     tud_deinit(0);
 }
-core_report_s _core_report = {0};
+core_report_s _core_report = {0}; /* Scratch report fetched from the core each TX cycle. */
 
+/**
+ * @brief Bring up the USB transport for a given core configuration.
+ *
+ * Stores the core params, resets link-pump timing/counters, then selects the
+ * poll period (_usb_frames) and the ready/report hooks for the core's report
+ * format (HID for SINPUT/SWPRO, XInput, or Slippi). Caches the core's HID
+ * descriptor set and starts the TinyUSB device stack.
+ *
+ * @param params Active core configuration; must provide a hid_device.
+ * @return true on successful tusb_init(); false for unsupported formats or a
+ *         missing HID device.
+ */
 bool transport_usb_init(core_params_s *params)
 {
     // Copy pointer
     _usb_core_params = params;
-    hdongle_link_pump_reset_timing();
+    core1_link_pump_reset_timing();
     ms_counter = 0;
     memset(_core_report.data, 0, 64);
 
@@ -1157,6 +1448,17 @@ bool transport_usb_init(core_params_s *params)
     return tusb_init();
 }
 
+/**
+ * @brief Periodic USB transport service routine.
+ *
+ * Runs the TinyUSB device task, refreshes the IN-endpoint ready flag, and once
+ * both the SOF cadence (_usb_sendit) and readiness line up, fetches a freshly
+ * generated report from the active core and pushes it via the selected report
+ * hook. The data buffer carries the report ID in byte 0, so the payload starts
+ * at index 1 with length size-1.
+ *
+ * @param timestamp Current time in microseconds (unused).
+ */
 void transport_usb_task(uint64_t timestamp)
 {
     tud_task();
@@ -1166,6 +1468,7 @@ void transport_usb_task(uint64_t timestamp)
         _usb_ready = _usb_hal_ready_cb();
     }
 
+    /* Only emit when the host poll cadence has fired and the endpoint is free. */
     if (_usb_sendit && _usb_ready)
     {
         _usb_sendit = false;

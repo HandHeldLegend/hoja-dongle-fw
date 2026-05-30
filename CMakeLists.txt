@@ -41,8 +41,9 @@ file(GLOB_RECURSE HAL_C "${CMAKE_CURRENT_LIST_DIR}/src/hal/*.c")
 file(GLOB_RECURSE UTILS_C "${CMAKE_CURRENT_LIST_DIR}/src/utilities/*.c")
 
 add_executable(hoja-dongle-fw 
-    src/hdongle.c 
     src/dhcpserver.c 
+    src/core1wlan.c 
+    src/core0transport.c 
     ${HAL_C} 
     ${CORES_C} 
     ${TRANSPORTS_C} 
@@ -67,7 +68,6 @@ target_compile_definitions(hoja-dongle-fw PRIVATE
         HOJA_BTN1_PIN=20
         HOJA_BTN2_PIN=29
         CYW43_USES_VSYS_PIN=0
-        #HOJA_DIAGNOSTICS=1
         )
 
 # Add the standard library to the build

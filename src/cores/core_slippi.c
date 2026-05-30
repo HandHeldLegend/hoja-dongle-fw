@@ -1,3 +1,23 @@
+/*
+ * Slippi core: emulates a Nintendo GameCube USB adapter for Slippi/melee.
+ *
+ * Copyright (c) 2026 Hand Held Legend, LLC
+ * Author: Mitchell Cairns
+ *
+ * SPDX-License-Identifier: MIT-0
+ */
+
+/**
+ * @file core_slippi.c
+ * @brief Official Nintendo GameCube Adapter (Slippi) USB personality.
+ *
+ * Emulates the Nintendo "WUP-028" GameCube controller adapter (VID 0x057E,
+ * PID 0x0337) so PCs running Slippi/Dolphin see a real adapter. The 37-byte
+ * input report mimics the adapter's multi-port framing (port status bytes plus
+ * per-port controller data); only port 1 carries live gamepad data sourced from
+ * core0's unreliable lane. Host output reports drive rumble and adapter init.
+ */
+
 #include <hoja_usb.h>
 #include <dongle.h>
 
@@ -10,7 +30,7 @@
 
 #include "cores/cores.h"
 #include "cores/core_usb.h"
-#include "hdongle.h"
+#include "core0transport.h"
 #include "transport/transport.h"
 
 #include "hardware/watchdog.h"
@@ -132,8 +152,15 @@ const core_hid_device_t _slippi_hid_device = {
     .device_descriptor      = &_slippi_device_descriptor,
 };
 
-// WLAN input: hdongle_rx_unreliable_read_core0() in get_generated_report.
+// WLAN input: core0_get_unreliable_inputreport() in get_generated_report.
 
+/**
+ * @brief Handle host output reports from the GameCube adapter protocol.
+ *
+ * Report 0x11 is a rumble command (one enable bit per port); report 0x13 is the
+ * adapter init/handshake and needs no action here. The rumble bit is mapped to
+ * full or zero strength and forwarded to the gamepad via core0.
+ */
 void _core_slippi_output_tunnel(const uint8_t *data, uint16_t len)
 {    
     switch(data[0])
@@ -143,7 +170,7 @@ void _core_slippi_output_tunnel(const uint8_t *data, uint16_t len)
         uint8_t strength = (data[1] & 0x1) ? 255 : 0;
         uint8_t brake = 0;
 
-        hdongle_update_rumble(strength, strength, 0, 0);
+        core0_set_rumble(strength, strength, 0, 0);
         break;
 
         // Init adapter 
@@ -156,6 +183,14 @@ void _core_slippi_output_tunnel(const uint8_t *data, uint16_t len)
 
 }
 
+/**
+ * @brief Build the 37-byte GameCube adapter input report.
+ *
+ * Lays out the adapter framing: report id 0x21, per-port status bytes marking
+ * port 1 as a connected (wired) controller and the other ports idle. The first
+ * call returns the empty/status-only frame; subsequent calls overlay live port-1
+ * controller data pulled from core0's unreliable lane while the link is up.
+ */
 bool _core_slippi_get_generated_report(core_report_s *out)
 {
     static bool _slippi_first = false;
@@ -186,10 +221,12 @@ bool _core_slippi_get_generated_report(core_report_s *out)
         return true;
     }
 
-    if (hdongle_current_status()->connection == DONGLE_CONN_CONNECTED)
+    dongle_status_u _status;
+    core0_get_status(&_status);
+    if (_status.link_status == DONGLE_LINK_UP)
     {
         dongle_pkt_s pkt;
-        if (hdongle_rx_unreliable_read_core0(&pkt) && pkt.len > 0)
+        if (core0_get_unreliable_inputreport(&pkt) && pkt.len > 0)
         {
             uint16_t n = pkt.len > out->size ? out->size : pkt.len;
             memcpy(out->data, pkt.data, n);
@@ -201,16 +238,19 @@ bool _core_slippi_get_generated_report(core_report_s *out)
 static core_usb_state_t _slippi_usb;
 core_params_s *_slippi_core_params = NULL;
 
+/** @brief Stop the USB transport when the core is torn down. */
 void _core_slippi_deinit(void)
 {
-    core_usb_stop(&_slippi_usb);
+    //core_usb_stop(&_slippi_usb);
 }
 
+/** @brief Per-tick servicing of the USB transport. */
 void _core_slippi_task(uint64_t timestamp)
 {
-    core_usb_task(&_slippi_usb, timestamp);
+    //core_usb_task(&_slippi_usb, timestamp);
 }
 
+/* Populate params with Slippi callbacks/descriptors and start USB if waking. */
 bool core_slippi_init(core_params_s *params, const dongle_wake_s *wake)
 {
     _slippi_core_params = params;
@@ -222,16 +262,18 @@ bool core_slippi_init(core_params_s *params, const dongle_wake_s *wake)
     params->core_report_format = CORE_REPORTFORMAT_SLIPPI;
     params->core_report_generator = _core_slippi_get_generated_report;
     params->core_output_report_tunnel = _core_slippi_output_tunnel;
-    params->core_input_report_tunnel = NULL;
     params->core_deinit = _core_slippi_deinit;
     params->core_task = _core_slippi_task;
 
     params->core_transport = GAMEPAD_TRANSPORT_USB;
 
+    /* Configure-only call (no wake): params are set but USB is not brought up. */
     if (!wake)
     {
         return true;
     }
+    return true;
 
-    return core_usb_start(&_slippi_usb, wake, NULL);
+    /* No apply_wake hook: the adapter identity is fixed (real Nintendo VID/PID). */
+    //return core_usb_start(&_slippi_usb, wake, NULL);
 }

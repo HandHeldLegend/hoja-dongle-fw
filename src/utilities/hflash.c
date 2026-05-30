@@ -1,16 +1,21 @@
+/*
+ * Deferred, flash-safe single-sector persistence helper for the RP2040.
+ *
+ * Copyright (c) 2026 Hand Held Legend, LLC
+ * Author: Mitchell Cairns
+ *
+ * SPDX-License-Identifier: MIT-0
+ */
+
 /**
  * @file hflash.c
+ * @brief Queued read/write access to a reserved on-chip flash sector.
  *
- * Author: Mitchell Cairns
- * Copyright (c) 2026 Hand Held Legend, LLC.
- *
- * Licensed under the Creative Commons Attribution-NonCommercial 4.0 International
- * License (CC BY-NC 4.0). Non-commercial use with attribution; commercial use
- * requires permission from Hand Held Legend, LLC. Licensing inquiries:
- * support@handheldlegend.com
- * Full terms: https://creativecommons.org/licenses/by-nc/4.0/legalcode
- *
- * SPDX-License-Identifier: CC-BY-NC-4.0
+ * Provides a tiny persistence layer that reserves a flash sector just ahead of
+ * BTstack's flash-bank storage. Writes are queued by hflash_write() and later
+ * committed from hflash_task() via the Pico SDK's flash-safe execution path,
+ * so callers (including callbacks) never block on flash erase/program. Reads
+ * are immediate through the memory-mapped XIP alias.
  */
 
 #include <stdint.h>
@@ -34,6 +39,7 @@ uint8_t *_write_from = NULL;
 volatile uint32_t _write_size = 0;
 volatile uint32_t _write_offset = 0;
 
+/** @brief XIP (memory-mapped) read address for the sector @p pages below the base. */
 uint32_t _get_sector_offset_read(uint32_t page)
 {
     /* XIP reads use an absolute memory-mapped address. */
@@ -41,6 +47,7 @@ uint32_t _get_sector_offset_read(uint32_t page)
     return target_offset;
 }
 
+/** @brief Raw flash offset (erase/program) for the sector @p pages below the base. */
 uint32_t _get_sector_offset_write(uint32_t page)
 {
     /* Erase/program operations use the raw flash offset instead of the XIP alias. */
@@ -62,6 +69,11 @@ bool hflash_write(uint8_t *data, uint32_t size, uint32_t page)
     return true;
 }
 
+/**
+ * @brief Flash-safe callback that commits the queued write.
+ *
+ * Runs under flash_safe_execute() with the other core paused and XIP disabled.
+ */
 void _flash_safe_write(void * params)
 {
     (void)params;
@@ -76,6 +88,7 @@ void _flash_safe_write(void * params)
     flash_range_program(_write_offset, thisPage, FLASH_SECTOR_SIZE);
 }
 
+/* Immediate read of up to one sector from the reserved region via the XIP alias. */
 bool hflash_read(uint8_t *out, uint32_t size, uint32_t page) 
 {
     if(size > FLASH_SECTOR_SIZE) return false;

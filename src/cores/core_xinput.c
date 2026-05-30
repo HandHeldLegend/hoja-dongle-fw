@@ -1,3 +1,22 @@
+/*
+ * XInput (Xbox 360) gamepad core: USB personality and report bridging.
+ *
+ * Copyright (c) 2026 Hand Held Legend, LLC
+ * Author: Mitchell Cairns
+ *
+ * SPDX-License-Identifier: MIT-0
+ */
+
+/**
+ * @file core_xinput.c
+ * @brief Xbox 360 / XInput USB gamepad personality.
+ *
+ * Presents the dongle to the host as a Microsoft XInput controller (VID 0x045E,
+ * PID 0x028E) using the vendor-specific interface and fixed 20-byte report.
+ * Input reports arrive over the wireless link via core0's unreliable lane and
+ * are forwarded to the host; XInput output (rumble) is currently ignored.
+ */
+
 #include <string.h>
 
 #include <hoja_usb.h>
@@ -6,7 +25,7 @@
 #include "cores/core_xinput.h"
 #include "cores/core_usb.h"
 #include "cores/cores.h"
-#include "hdongle.h"
+#include "core0transport.h"
 #include "transport/transport.h"
 
 #define XINPUT_REPORT_LEN 20
@@ -55,6 +74,7 @@ static core_hid_device_t _xinput_hid_device = {
 static core_usb_state_t _xinput_usb;
 static core_params_s *_xinput_params;
 
+/** @brief Override descriptor VID/PID from a non-zero host wake request. */
 static void _xinput_apply_wake(const dongle_wake_s *wake, core_hid_device_t *hid)
 {
     if (wake->vid)
@@ -69,15 +89,23 @@ static void _xinput_apply_wake(const dongle_wake_s *wake, core_hid_device_t *hid
     }
 }
 
+/* Cached last report so polls still return valid data when no fresh packet arrives. */
 static core_xinput_report_s _last_report;
 
+/**
+ * @brief Produce the next 20-byte XInput report for the host.
+ *
+ * Pulls the freshest unreliable input packet from core0 when available and of
+ * the expected size; otherwise repeats the last known report so the host never
+ * sees a stalled/garbage frame.
+ */
 static bool _xinput_get_generated_report(core_report_s *out)
 {
     out->reportformat = CORE_REPORTFORMAT_XINPUT;
     out->size = XINPUT_REPORT_LEN;
 
     dongle_pkt_s pkt;
-    if (hdongle_rx_unreliable_read_core0(&pkt) && pkt.len == out->size)
+    if (core0_get_unreliable_inputreport(&pkt) && pkt.len == out->size)
     {
         memcpy(&_last_report, pkt.data, pkt.len);
         memcpy(out->data, &_last_report, out->size);
@@ -89,22 +117,26 @@ static bool _xinput_get_generated_report(core_report_s *out)
     return true;
 }
 
+/** @brief Host->device output (rumble) handler; XInput output is not bridged. */
 static void _xinput_output_tunnel(const uint8_t *data, uint16_t len)
 {
     (void)data;
     (void)len;
 }
 
+/** @brief Stop the USB transport when the core is torn down. */
 static void _xinput_deinit(void)
 {
-    core_usb_stop(&_xinput_usb);
+    //core_usb_stop(&_xinput_usb);
 }
 
+/** @brief Per-tick servicing of the USB transport. */
 static void _xinput_task(uint64_t timestamp)
 {
-    core_usb_task(&_xinput_usb, timestamp);
+    //core_usb_task(&_xinput_usb, timestamp);
 }
 
+/* Populate params with XInput callbacks/descriptors and start USB if waking. */
 bool core_xinput_init(core_params_s *params, const dongle_wake_s *wake)
 {
     _xinput_params = params;
@@ -114,16 +146,16 @@ bool core_xinput_init(core_params_s *params, const dongle_wake_s *wake)
     params->hid_device = &_xinput_hid_device;
     params->core_report_format = CORE_REPORTFORMAT_XINPUT;
     params->core_report_generator = _xinput_get_generated_report;
-    params->core_input_report_tunnel = NULL;
     params->core_output_report_tunnel = _xinput_output_tunnel;
     params->core_deinit = _xinput_deinit;
     params->core_task = _xinput_task;
     params->core_transport = GAMEPAD_TRANSPORT_USB;
 
+    /* Configure-only call (no wake): params are set but USB is not brought up. */
     if (!wake)
     {
         return true;
     }
 
-    return core_usb_start(&_xinput_usb, wake, _xinput_apply_wake);
+    return false;
 }

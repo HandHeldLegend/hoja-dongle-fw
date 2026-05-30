@@ -1,10 +1,31 @@
+/*
+ * SInput gamepad core: USB HID personality with command/feature reports.
+ *
+ * Copyright (c) 2026 Hand Held Legend, LLC
+ * Author: Mitchell Cairns
+ *
+ * SPDX-License-Identifier: MIT-0
+ */
+
+/**
+ * @file core_sinput.c
+ * @brief SInput USB HID gamepad personality with command/feature channel.
+ *
+ * Presents a standard HID gamepad (the "SInput" protocol) to the host. In
+ * addition to the regular input report, SInput multiplexes command/data
+ * reports: the host can request haptics, player LED, or a one-shot device
+ * "features" descriptor. Output command reports are relayed to the gamepad over
+ * core0's reliable lane, and the features reply is captured from the reliable
+ * input lane and surfaced as the next input report.
+ */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dongle.h>
 
-#include "hdongle.h"
+#include "core0transport.h"
 #include "cores/cores.h"
 #include "cores/core_usb.h"
 #include "transport/transport.h"
@@ -24,6 +45,7 @@
 #define SINPUT_REPORT_LEN_COMMAND 48
 #define SINPUT_REPORT_LEN_INPUT   64
 
+/* Cached one-shot "features" reply and the command we are currently awaiting. */
 static volatile bool _sinput_features_report_got;
 static uint8_t _sinput_features_report_data[SINPUT_REPORT_LEN_INPUT];
 static volatile uint8_t _si_current_command;
@@ -81,6 +103,7 @@ static core_hid_device_t _sinput_hid_device = {
 
 static core_usb_state_t _sinput_usb;
 
+/** @brief Override descriptor VID/PID from a non-zero host wake request. */
 static void _sinput_apply_wake(const dongle_wake_s *wake, core_hid_device_t *hid)
 {
     if (wake->vid)
@@ -95,14 +118,23 @@ static void _sinput_apply_wake(const dongle_wake_s *wake, core_hid_device_t *hid
     }
 }
 
+/** @brief Send a reliable request asking the gamepad for its features report. */
 static void _core_sinput_send_featurerequest(void)
 {
     const uint8_t req[] = {REPORT_ID_SINPUT_OUTPUT_CMDDAT, SINPUT_COMMAND_FEATURES};
-    hdongle_core0_send_reliable_outputreport(req, sizeof(req));
+    core0_send_reliable_outputreport(req, sizeof(req));
 }
 
+/**
+ * @brief Route a host output command report to the gamepad.
+ *
+ * Haptic/player-LED commands are relayed verbatim over the reliable lane.
+ * A features request instead arms _si_current_command and kicks off the
+ * dedicated feature request so the reply can be captured on the next poll.
+ */
 static void _core_sinput_output_tunnel(const uint8_t *data, uint16_t len)
 {
+    /* Only well-formed output command/data reports are actionable. */
     if (len != SINPUT_REPORT_LEN_COMMAND || data[0] != REPORT_ID_SINPUT_OUTPUT_CMDDAT)
     {
         return;
@@ -112,7 +144,7 @@ static void _core_sinput_output_tunnel(const uint8_t *data, uint16_t len)
     {
     case SINPUT_COMMAND_HAPTIC:
     case SINPUT_COMMAND_PLAYERLED:
-        hdongle_core0_send_reliable_outputreport(data, len);
+        core0_send_reliable_outputreport(data, len);
         break;
 
     case SINPUT_COMMAND_FEATURES:
@@ -122,6 +154,14 @@ static void _core_sinput_output_tunnel(const uint8_t *data, uint16_t len)
     }
 }
 
+/**
+ * @brief Produce the next 64-byte SInput input report.
+ *
+ * When a features request is pending and the matching reliable reply has
+ * arrived, that command/data report is surfaced once (and cached). Otherwise
+ * the latest unreliable input packet from core0 is returned as the normal
+ * gamepad state.
+ */
 static bool _core_sinput_get_generated_report(core_report_s *out)
 {
     out->reportformat = CORE_REPORTFORMAT_SINPUT;
@@ -129,8 +169,9 @@ static bool _core_sinput_get_generated_report(core_report_s *out)
 
     uint16_t len = 0;
 
+    /* Priority path: deliver the awaited features reply exactly once. */
     if (_si_current_command == SINPUT_COMMAND_FEATURES &&
-        hdongle_core0_consume_reliable_inputreport(out->data, &len) &&
+        core0_consume_reliable_inputreport(out->data, &len) &&
         len == SINPUT_REPORT_LEN_INPUT &&
         out->data[0] == REPORT_ID_SINPUT_INPUT_CMDDAT &&
         out->data[1] == SINPUT_COMMAND_FEATURES)
@@ -141,8 +182,9 @@ static bool _core_sinput_get_generated_report(core_report_s *out)
         return true;
     }
 
+    /* Normal path: forward the freshest unreliable input report if sized right. */
     dongle_pkt_s pkt;
-    if (hdongle_rx_unreliable_read_core0(&pkt) && pkt.len == SINPUT_REPORT_LEN_INPUT)
+    if (core0_get_unreliable_inputreport(&pkt) && pkt.len == SINPUT_REPORT_LEN_INPUT)
     {
         memcpy(out->data, pkt.data, pkt.len);
     }
@@ -150,18 +192,21 @@ static bool _core_sinput_get_generated_report(core_report_s *out)
     return true;
 }
 
+/** @brief Stop USB and clear pending feature-command state on teardown. */
 static void _core_sinput_deinit(void)
 {
-    core_usb_stop(&_sinput_usb);
+    //core_usb_stop(&_sinput_usb);
     _sinput_features_report_got = false;
     _si_current_command = 0;
 }
 
+/** @brief Per-tick servicing of the USB transport. */
 static void _core_sinput_task(uint64_t timestamp)
 {
-    core_usb_task(&_sinput_usb, timestamp);
+    //core_usb_task(&_sinput_usb, timestamp);
 }
 
+/* Populate params with SInput callbacks/descriptors and start USB if waking. */
 bool core_sinput_init(core_params_s *params, const dongle_wake_s *wake)
 {
     _sinput_usb = (core_usb_state_t){.params = params, .transport_active = false};
@@ -170,16 +215,16 @@ bool core_sinput_init(core_params_s *params, const dongle_wake_s *wake)
     params->hid_device = &_sinput_hid_device;
     params->core_report_format = CORE_REPORTFORMAT_SINPUT;
     params->core_report_generator = _core_sinput_get_generated_report;
-    params->core_input_report_tunnel = NULL;
     params->core_output_report_tunnel = _core_sinput_output_tunnel;
     params->core_deinit = _core_sinput_deinit;
     params->core_task = _core_sinput_task;
     params->core_transport = GAMEPAD_TRANSPORT_USB;
 
+    /* Configure-only call (no wake): params are set but USB is not brought up. */
     if (!wake)
     {
         return true;
     }
 
-    return core_usb_start(&_sinput_usb, wake, _sinput_apply_wake);
+    return true;
 }

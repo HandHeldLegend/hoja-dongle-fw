@@ -1,3 +1,21 @@
+/*
+ * Shared HOJA value types (RGB, connection/mode/method enums, status, haptics).
+ *
+ * Copyright (c) 2026 Hand Held Legend, LLC
+ * Author: Mitchell Cairns
+ *
+ * SPDX-License-Identifier: MIT-0
+ */
+
+/**
+ * @file hoja_types.h
+ * @brief Common value types shared across the HOJA firmware.
+ *
+ * Defines the RGB pixel layout (compile-time channel order), the gamepad
+ * connection/mode/method/transport enumerations, the aggregate status struct, and
+ * the processed-haptics packet types.
+ */
+
 #ifndef HOJA_TYPES_H
 #define HOJA_TYPES_H
 
@@ -9,6 +27,12 @@
 
 #define RGB_DRIVER_ORDER RGB_ORDER_GRB
 
+/**
+ * @brief Single RGB pixel.
+ *
+ * The byte order of the bitfield is selected at compile time to match the LED
+ * driver's wire order, so @c color can be shifted out directly.
+ */
 // Handle RGB mode choosing compiler side
 #if (RGB_DRIVER_ORDER == RGB_ORDER_GRB)
 typedef struct
@@ -42,6 +66,7 @@ typedef struct
 } rgb_s;
 #endif
 
+/** @brief Connection lifecycle / assigned-player state (negative values are transient states). */
 typedef enum 
 {
     CONN_STATUS_SHUTDOWN = -3,
@@ -64,6 +89,7 @@ typedef enum
     
 } player_number_t;
 
+/** @brief Gamepad personality / emulated controller mode. */
 typedef enum
 {
     GAMEPAD_MODE_UNDEFINED = -2,
@@ -78,6 +104,7 @@ typedef enum
     GAMEPAD_MODE_MAX,
 } gamepad_mode_t;
 
+/** @brief Power/connection method that backs the active gamepad mode. */
 typedef enum
 {
     GAMEPAD_METHOD_AUTO  = -1,      // Automatically determine if we are plugged or wireless
@@ -87,6 +114,7 @@ typedef enum
     GAMEPAD_METHOD_WLAN = 3,        // Wireless WLAN modes (dongle)
 } gamepad_method_t;
 
+/** @brief Physical/logical transport carrying gamepad data. */
 typedef enum 
 {
     GAMEPAD_TRANSPORT_UNDEFINED = -1,
@@ -98,6 +126,7 @@ typedef enum
     GAMEPAD_TRANSPORT_WLAN,
 } gamepad_transport_t;
 
+/** @brief Aggregate runtime gamepad status (mode, method, colors, notifications). */
 typedef struct 
 {
     int8_t connection_status;
@@ -111,6 +140,7 @@ typedef struct
     uint8_t debug_data;
 } hoja_status_s;
 
+/** @brief One processed haptic band (hi/lo amplitude + frequency increment), packable as a u64. */
 typedef union
 {
     struct
@@ -123,6 +153,7 @@ typedef union
     uint64_t value; 
 } haptic_processed_s;
 
+/** @brief A batch of processed haptic bands with a monotonic sequence counter. */
 typedef struct
 {
     haptic_processed_s pairs[3];
