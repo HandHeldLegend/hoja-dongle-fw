@@ -29,7 +29,7 @@ void set_status_player_number(uint8_t player);
 
 void set_status_transport(dongle_transport_status_t status);
 
-void get_status(dongle_status_u *out);
+void get_status(dongle_status_s *out);
 
 void set_session(dongle_session_s *session);
 
@@ -40,7 +40,7 @@ void get_session(dongle_session_s *session);
 /*                                                                           */
 /* Single writer = core 1 (the RX/watchdog owner). Readers: core 1 (pump)    */
 /* and core 0 (RGB). Backed by its own cross-core snapshot, independent of   */
-/* the transmitted dongle_status_u.                                          */
+/* the transmitted dongle_status_s.                                          */
 /* ------------------------------------------------------------------------- */
 
 /* Mark the link UP and stamp activity. Call on every gamepad packet whose

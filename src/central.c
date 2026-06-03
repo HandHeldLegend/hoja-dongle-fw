@@ -14,7 +14,7 @@
 
 #define LINK_TIMEOUT_US 5000000u /* 5 s without a matching packet -> link down */
 
-SNAPSHOT_TYPE(status, dongle_status_u);
+SNAPSHOT_TYPE(status, dongle_status_s);
 snapshot_status_t _ss_status;
 
 SNAPSHOT_TYPE(session, dongle_session_s);
@@ -32,7 +32,7 @@ static snapshot_link_t _ss_link; /* zero-init => DONGLE_LINK_DOWN, last_rx_us 0 
 
 void set_status_rumble(uint8_t left, uint8_t right, uint8_t brake_left, uint8_t brake_right)
 {
-    dongle_status_u tmp;
+    dongle_status_s tmp;
     snapshot_status_read(&_ss_status, &tmp);
     tmp.rumble.left = left;
     tmp.rumble.right = right;
@@ -43,7 +43,7 @@ void set_status_rumble(uint8_t left, uint8_t right, uint8_t brake_left, uint8_t 
 
 void set_status_player_number(uint8_t player)
 {
-    dongle_status_u tmp;
+    dongle_status_s tmp;
     snapshot_status_read(&_ss_status, &tmp);
     tmp.player_number = player;
     snapshot_status_write(&_ss_status, &tmp);
@@ -51,13 +51,13 @@ void set_status_player_number(uint8_t player)
 
 void set_status_transport(dongle_transport_status_t status)
 {
-    dongle_status_u tmp;
+    dongle_status_s tmp;
     snapshot_status_read(&_ss_status, &tmp);
     tmp.transport_status = status;
     snapshot_status_write(&_ss_status, &tmp);
 }
 
-void get_status(dongle_status_u *out)
+void get_status(dongle_status_s *out)
 {
     if (out)
     {

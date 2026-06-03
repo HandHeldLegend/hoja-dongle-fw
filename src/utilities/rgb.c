@@ -349,7 +349,7 @@ void dongle_rgb_task(uint64_t now_us)
 {
     _buttons_task(now_us);
 
-    dongle_status_u status;
+    dongle_status_s status;
     get_status(&status);
 
     bool refresh = false;

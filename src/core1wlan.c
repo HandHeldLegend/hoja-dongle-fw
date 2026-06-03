@@ -150,7 +150,7 @@ static bool _c1_send_reliable(void)
 
 static bool _c1_send_status(void)
 {
-    dongle_status_u status;
+    dongle_status_s status;
     get_status(&status);
 
     dongle_session_s session;
