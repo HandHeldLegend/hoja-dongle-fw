@@ -36,8 +36,7 @@
 
 #include "utilities/interval.h"
 #include "utilities/crosscore_snapshot.h"
-#include "core0transport.h"
-#include "core1wlan.h"
+#include <dongle_host.h>
 
 /** GameCube Joybus command bytes the console sends to the controller. */
 typedef enum
@@ -551,7 +550,7 @@ void transport_jbgc_task(uint64_t timestamp)
 
   if (_gc_sent_data)
   {
-    core1_pump_timer_mark_sent();
+    dongle_api_host_transport_mark_sent();
     _gc_sent_data = false;
   }
 

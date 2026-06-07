@@ -23,9 +23,7 @@
 
 #include "hal/rgb_hal.h"
 
-#include "central.h"
-#include "core0transport.h"
-#include "core1wlan.h"
+#include <dongle_host.h>
 
 #include <dongle.h>
 #include <string.h>
@@ -350,13 +348,13 @@ void dongle_rgb_task(uint64_t now_us)
     _buttons_task(now_us);
 
     dongle_status_s status;
-    get_status(&status);
+    dongle_api_host_transport_get_status(&status);
 
     bool refresh = false;
 
-    /* Link status lives in its own state machine (owned by core 1), separate
-     * from the transmitted status union. */
-    dongle_link_status_t link = get_link_status();
+    /* Link status lives in its own state machine (owned by the wlan task),
+     * separate from the transmitted status union. */
+    dongle_link_status_t link = dongle_api_host_transport_get_link_status();
     if (link != _link)
     {
         _link = link;

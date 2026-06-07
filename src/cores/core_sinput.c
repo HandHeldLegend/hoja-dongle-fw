@@ -25,7 +25,7 @@
 #include <string.h>
 #include <dongle.h>
 
-#include "core0transport.h"
+#include <dongle_host.h>
 #include "cores/cores.h"
 #include "cores/core_usb.h"
 #include "transport/transport.h"
@@ -122,7 +122,7 @@ static void _sinput_apply_wake(const dongle_wake_s *wake, core_hid_device_t *hid
 static void _core_sinput_send_featurerequest(void)
 {
     const uint8_t req[] = {REPORT_ID_SINPUT_OUTPUT_CMDDAT, SINPUT_COMMAND_FEATURES};
-    core0_send_reliable_outputreport(req, sizeof(req));
+    dongle_api_host_transport_set_outputreport(req, sizeof(req));
 }
 
 /**
@@ -144,7 +144,7 @@ static void _core_sinput_output_tunnel(const uint8_t *data, uint16_t len)
     {
     case SINPUT_COMMAND_HAPTIC:
     case SINPUT_COMMAND_PLAYERLED:
-        core0_send_reliable_outputreport(data, len);
+        dongle_api_host_transport_set_outputreport(data, len);
         break;
 
     case SINPUT_COMMAND_FEATURES:
@@ -184,7 +184,7 @@ static bool _core_sinput_get_generated_report(core_report_s *out)
 
     /* Normal path: forward the freshest unreliable input report if sized right. */
     dongle_pkt_s pkt;
-    if (core0_get_unreliable_pkt(&pkt) && pkt.len == SINPUT_REPORT_LEN_INPUT)
+    if (dongle_api_host_transport_get_inputpacket(&pkt) && pkt.len == SINPUT_REPORT_LEN_INPUT)
     {
         memcpy(out->data, pkt.data, pkt.len);
     }

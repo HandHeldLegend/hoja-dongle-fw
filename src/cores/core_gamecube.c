@@ -21,7 +21,7 @@
 
 #include <string.h>
 
-#include "core0transport.h"
+#include <dongle_host.h>
 #include "transport/transport.h"
 
 /* Cached last report so polls still return valid data when no fresh packet arrives. */
@@ -34,7 +34,7 @@ bool _core_gamecube_get_generated_report(core_report_s *out)
     out->size = sizeof(core_gamecube_report_s);
 
     dongle_pkt_s pkt;
-    if (core0_get_unreliable_pkt(&pkt) && pkt.len == out->size)
+    if (dongle_api_host_transport_get_inputpacket(&pkt) && pkt.len == out->size)
     {
         memcpy(&_last_report, pkt.data, pkt.len);
         memcpy(out->data, &_last_report, out->size);

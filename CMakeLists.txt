@@ -41,10 +41,9 @@ file(GLOB_RECURSE HAL_C "${CMAKE_CURRENT_LIST_DIR}/src/hal/*.c")
 file(GLOB_RECURSE UTILS_C "${CMAKE_CURRENT_LIST_DIR}/src/utilities/*.c")
 
 add_executable(hoja-dongle-fw 
+    src/main.c 
+    src/dongle_network.c 
     src/dhcpserver.c 
-    src/core1wlan.c 
-    src/core0transport.c 
-    src/central.c 
     ${HAL_C} 
     ${CORES_C} 
     ${TRANSPORTS_C} 

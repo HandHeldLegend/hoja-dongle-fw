@@ -35,8 +35,7 @@
 #include "utilities/n64_crc.h"
 #include "utilities/interval.h"
 #include "utilities/crosscore_snapshot.h"
-#include "core0transport.h"
-#include "core1wlan.h"
+#include <dongle_host.h>
 
 /** N64 Joybus command bytes the console sends to the controller. */
 typedef enum
@@ -521,7 +520,7 @@ void transport_jb64_task(uint64_t timestamp)
   if (_n64_sent_data)
   {
     uint64_t now_us = timestamp;
-    core1_pump_timer_mark_sent();
+    dongle_api_host_transport_mark_sent();
     _n64_sent_data = false;
   }
 

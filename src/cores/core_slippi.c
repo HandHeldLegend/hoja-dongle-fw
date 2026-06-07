@@ -30,8 +30,7 @@
 
 #include "cores/cores.h"
 #include "cores/core_usb.h"
-#include "core0transport.h"
-#include "central.h"
+#include <dongle_host.h>
 #include "transport/transport.h"
 
 #include "hardware/watchdog.h"
@@ -222,10 +221,10 @@ bool _core_slippi_get_generated_report(core_report_s *out)
         return true;
     }
 
-    if (get_link_status() == DONGLE_LINK_UP)
+    if (dongle_api_host_transport_get_link_status() == DONGLE_LINK_UP)
     {
         dongle_pkt_s pkt;
-        if (core0_get_unreliable_pkt(&pkt) && pkt.len > 0)
+        if (dongle_api_host_transport_get_inputpacket(&pkt) && pkt.len > 0)
         {
             uint16_t n = pkt.len > out->size ? out->size : pkt.len;
             memcpy(out->data, pkt.data, n);

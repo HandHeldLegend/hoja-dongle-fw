@@ -27,7 +27,7 @@
 #include "cores/core_switch.h"
 #include "cores/core_usb.h"
 #include "cores/cores.h"
-#include "core0transport.h"
+#include <dongle_host.h>
 #include "transport/transport.h"
 
 #define CORE_SWITCH_HID_NAME "Pro Controller"
@@ -250,7 +250,7 @@ static bool _switch_get_generated_report(core_report_s *out)
     out->reportformat = CORE_REPORTFORMAT_SWPRO;
     out->size = 64;
 
-    if(core0_get_inputreport(out->data, &out->size))
+    if(dongle_api_host_transport_get_inputreport(out->data, &out->size))
     {
         return true;
     }
@@ -261,7 +261,7 @@ static bool _switch_get_generated_report(core_report_s *out)
 /** @brief Relay a host output report (rumble/subcommand) to the gamepad reliably. */
 static void _switch_output_report_tunnel(const uint8_t *data, uint16_t len)
 {
-    core0_send_reliable_outputreport(data, len);
+    dongle_api_host_transport_set_outputreport(data, len);
 }
 
 static const core_params_s *_switch_params = NULL;

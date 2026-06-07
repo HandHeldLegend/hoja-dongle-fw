@@ -28,9 +28,7 @@
 
 #include "cores/cores.h"
 
-#include "core0transport.h"
-#include "central.h"
-#include "core1wlan.h"
+#include <dongle_host.h>
 
 #include "pico/time.h"
 
@@ -1315,7 +1313,7 @@ void tud_mount_cb()
     /* Force a clean re-enable of the SOF callback for the new connection. */
     tud_sof_cb_enable(false);
     tud_sof_cb_enable(true);
-    set_status_transport(DONGLE_TRANSPORT_CONNECTED);
+    dongle_api_host_transport_set_transport(true);
 }
 
 /**
@@ -1325,7 +1323,7 @@ void tud_mount_cb()
  */
 void tud_umount_cb()
 {
-    set_status_transport(DONGLE_TRANSPORT_IDLE);
+    dongle_api_host_transport_set_transport(false);
 }
 
 /**
@@ -1355,7 +1353,7 @@ void tud_sof_cb(uint32_t frame_count_ext)
     }
     else if(ms_counter >= _usb_frames-1)
     {
-        core1_pump_timer_mark_sent();
+        dongle_api_host_transport_mark_sent();
         _usb_sendit = true;
     }
 }
@@ -1375,7 +1373,7 @@ void transport_usb_stop()
 {
     _usb_hal_report_cb = NULL;
     ms_counter = 0;
-    set_status_transport(DONGLE_TRANSPORT_IDLE);
+    dongle_api_host_transport_set_transport(false);
     tud_deinit(0);
 }
 core_report_s _core_report = {0}; /* Scratch report fetched from the core each TX cycle. */
