@@ -33,53 +33,39 @@
 #include "cores/cores.h"
 #include "transport/transport.h"
 
-#define SINPUT_DEFAULT_VID 0x2E8A
-#define SINPUT_DEFAULT_PID 0x10C6
 #define SINPUT_NAME "SInput Gamepad"
+#define SINPUT_MFG  "HHL"
 
 static core_params_s *_sinput_params = NULL;
 
-static core_hid_device_t _sinput_hid_device = {
-    .config_descriptor = NULL,
-    .config_descriptor_len = 0,
-    .hid_report_descriptor = NULL,
-    .hid_report_descriptor_len = 0,
-    .device_descriptor = NULL,
-    .name = SINPUT_NAME,
-    .pid = SINPUT_DEFAULT_PID,
-    .vid = SINPUT_DEFAULT_VID,
-};
+static core_hid_device_t _sinput_hid_device = {0};
+static hoja_usb_device_descriptor_t _sinput_device_descriptor = {0};
 
-/** @brief Override descriptor VID/PID/name from the gamepad WAKE packet. */
-static void _sinput_apply_wake(const dongle_wake_s *wake)
+static bool _sinput_populate_hid_device(void)
 {
-    if (wake->vid)
-    {
-        _sinput_hid_device.vid = wake->vid;
-    }
-    if (wake->pid)
-    {
-        _sinput_hid_device.pid = wake->pid;
-    }
+    uint16_t vid = 0;
+    uint16_t pid = 0;
 
-    if (wake->name[0] != '\0')
-    {
-        memcpy(_sinput_hid_device.name, wake->name, sizeof(wake->name));
-        _sinput_hid_device.name[sizeof(wake->name)] = '\0';
-    }
-    else
-    {
-        strncpy(_sinput_hid_device.name, SINPUT_NAME, sizeof(_sinput_hid_device.name) - 1);
-        _sinput_hid_device.name[sizeof(_sinput_hid_device.name) - 1] = '\0';
-    }
+    sinput_hid_get_descriptor_params(
+        &_sinput_hid_device.hid_report_descriptor, &_sinput_hid_device.hid_report_descriptor_len,
+        &_sinput_hid_device.config_descriptor, &_sinput_hid_device.config_descriptor_len,
+        &vid, &pid);
+
+    const sinput_usb_device_descriptor_t *lib_dev = sinput_hid_get_device_descriptor();
+    memcpy(&_sinput_device_descriptor, lib_dev, sizeof(_sinput_device_descriptor));
+
+    _sinput_hid_device.device_descriptor = &_sinput_device_descriptor;
+    _sinput_hid_device.vid = vid;
+    _sinput_hid_device.pid = pid;
+
+    strncpy(_sinput_hid_device.name, SINPUT_NAME, sizeof(_sinput_hid_device.name) - 1);
+    _sinput_hid_device.name[sizeof(_sinput_hid_device.name) - 1] = '\0';
+
+    return true;
 }
 
 /**
  * @brief Route a host output command report to the gamepad.
- *
- * Haptic/player-LED commands are relayed verbatim over the reliable lane.
- * A features request instead arms _si_current_command and kicks off the
- * dedicated feature request so the reply can be captured on the next poll.
  */
 static void _core_sinput_output_tunnel(const uint8_t *data, uint16_t len)
 {
@@ -88,32 +74,29 @@ static void _core_sinput_output_tunnel(const uint8_t *data, uint16_t len)
 
 /**
  * @brief Produce the next 64-byte SInput input report.
- *
- * When a features request is pending and the matching reliable reply has
- * arrived, that command/data report is surfaced once (and cached). Otherwise
- * the latest unreliable input packet from core0 is returned as the normal
- * gamepad state.
  */
 static bool _core_sinput_get_generated_report(core_report_s *out)
 {
     out->reportformat = CORE_REPORTFORMAT_SINPUT;
     out->size = 64;
 
-    if(dongle_api_host_transport_get_inputreport(out->data, &out->size));
+    if (dongle_api_host_transport_get_inputreport(out->data, &out->size))
+    {
+        return true;
+    }
 
-    return true;
+    return false;
 }
 
 /** @brief Stop USB and clear pending feature-command state on teardown. */
 static void _core_sinput_deinit(void)
 {
-
 }
 
 /** @brief Per-tick servicing of the USB transport. */
 static void _core_sinput_task(uint64_t timestamp)
 {
-    if(_sinput_params->core_transport_task)
+    if (_sinput_params->core_transport_task)
     {
         _sinput_params->core_transport_task(timestamp);
     }
@@ -123,15 +106,14 @@ static void _core_sinput_task(uint64_t timestamp)
 bool core_sinput_init(core_params_s *params, const dongle_wake_s *wake)
 {
     _sinput_params = params;
-    _sinput_apply_wake(wake);
 
-    sinput_hid_get_descriptor_params(
-        &_sinput_hid_device.hid_report_descriptor, &_sinput_hid_device.hid_report_descriptor_len,
-        &_sinput_hid_device.config_descriptor, &_sinput_hid_device.config_descriptor_len, 
-        NULL, NULL
-    );
+    if (!_sinput_populate_hid_device())
+    {
+        return false;
+    }
 
-    _sinput_hid_device.device_descriptor = (hoja_usb_device_descriptor_t*) sinput_hid_get_device_descriptor();
+    core_hid_apply_wake_identity(wake, &_sinput_hid_device, SINPUT_NAME, SINPUT_MFG);
+    core_hid_sync_device_descriptor(&_sinput_hid_device, &_sinput_device_descriptor);
 
     params->core_pollrate_us = 1000;
     params->hid_device = &_sinput_hid_device;

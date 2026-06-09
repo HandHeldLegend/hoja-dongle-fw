@@ -88,11 +88,13 @@ target_include_directories(hoja-dongle-fw PRIVATE
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/HOJA-LIB-DONGLE")
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/NS-LIB-HID")
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/SINPUT-LIB-HID")
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/external/HHL-TINYUSB-DRIVERS")
 
 target_link_libraries(hoja-dongle-fw
         hoja_lib_dongle
         ns_lib_hid
         sinput_lib_hid
+        hhl_tinyusb_drivers
         )
 
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/include/generated)

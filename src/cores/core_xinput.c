@@ -11,16 +11,15 @@
  * @file core_xinput.c
  * @brief Xbox 360 / XInput USB gamepad personality.
  *
- * Presents the dongle to the host as a Microsoft XInput controller (VID 0x045E,
- * PID 0x028E) using the vendor-specific interface and fixed 20-byte report.
- * Input reports arrive over the wireless link via core0's unreliable lane and
- * are forwarded to the host; XInput output (rumble) is currently ignored.
+ * USB descriptors are owned by HHL-TINYUSB-DRIVERS. This core only bridges
+ * wireless input reports to the host and applies WAKE-supplied USB strings.
  */
 
 #include <string.h>
 
-#include <hoja_usb.h>
 #include <dongle.h>
+
+#include "hhl_tusb_xinput.h"
 
 #include "cores/core_xinput.h"
 
@@ -29,74 +28,28 @@
 #include "transport/transport.h"
 
 #define XINPUT_REPORT_LEN 20
+#define XINPUT_DEFAULT_MFG "Microsoft"
 
 typedef struct
 {
     uint8_t report[XINPUT_REPORT_LEN];
 } core_xinput_report_s;
 
-static hoja_usb_device_descriptor_t _xinput_device_descriptor = {
-    .bLength = sizeof(hoja_usb_device_descriptor_t),
-    .bDescriptorType = HUSB_DESC_DEVICE,
-    .bcdUSB = 0x0200,
-    .bDeviceClass = 0x00,
-    .bDeviceSubClass = 0x00,
-    .bDeviceProtocol = 0x00,
-    .bMaxPacketSize0 = 64,
-    .idVendor = 0x045E,
-    .idProduct = 0x028E,
-    .bcdDevice = 0x0114,
-    .iManufacturer = 0x01,
-    .iProduct = 0x02,
-    .iSerialNumber = 0x03,
-    .bNumConfigurations = 0x01,
-};
-
-#define XINPUT_CONFIG_DESCRIPTOR_LEN 32
-static const uint8_t _xinput_configuration_descriptor[XINPUT_CONFIG_DESCRIPTOR_LEN] = {
-    9, 2, XINPUT_CONFIG_DESCRIPTOR_LEN, 0, 1, 1, 0, 0x80, 50,
-    9, 4, 0, 0, 2, 0xFF, 0x5D, 0x01, 0,
-    7, 5, 0x81, 3, 32, 0, 4,
-    7, 5, 0x02, 3, 32, 0, 8,
-};
-
+/* Strings only — XInput descriptors come from HHL-TINYUSB-DRIVERS. */
 static core_hid_device_t _xinput_hid_device = {
-    .config_descriptor = _xinput_configuration_descriptor,
-    .config_descriptor_len = XINPUT_CONFIG_DESCRIPTOR_LEN,
-    .hid_report_descriptor = NULL,
-    .hid_report_descriptor_len = 0,
-    .device_descriptor = &_xinput_device_descriptor,
-    .vid = 0x045E,
-    .pid = 0x028E,
-    .name = "XInput Gamepad",
+    .vid = HHL_TUSB_XINPUT_VID,
+    .pid = HHL_TUSB_XINPUT_PID,
+    .name = HHL_TUSB_XINPUT_NAME,
+    .manufacturer = XINPUT_DEFAULT_MFG,
 };
 
 static core_params_s *_xinput_params;
-
-/** @brief Override descriptor VID/PID from a non-zero host wake request. */
-static void _xinput_apply_wake(const dongle_wake_s *wake, core_hid_device_t *hid)
-{
-    if (wake->vid)
-    {
-        hid->vid = wake->vid;
-        _xinput_device_descriptor.idVendor = wake->vid;
-    }
-    if (wake->pid)
-    {
-        hid->pid = wake->pid;
-        _xinput_device_descriptor.idProduct = wake->pid;
-    }
-}
 
 /* Cached last report so polls still return valid data when no fresh packet arrives. */
 static core_xinput_report_s _last_report;
 
 /**
  * @brief Produce the next 20-byte XInput report for the host.
- *
- * Pulls the freshest unreliable input packet from core0 when available and of
- * the expected size; otherwise repeats the last known report so the host never
- * sees a stalled/garbage frame.
  */
 static bool _xinput_get_generated_report(core_report_s *out)
 {
@@ -126,19 +79,23 @@ static void _xinput_output_tunnel(const uint8_t *data, uint16_t len)
 /** @brief Stop the USB transport when the core is torn down. */
 static void _xinput_deinit(void)
 {
-    //core_usb_stop(&_xinput_usb);
 }
 
 /** @brief Per-tick servicing of the USB transport. */
 static void _xinput_task(uint64_t timestamp)
 {
-    //core_usb_task(&_xinput_usb, timestamp);
+    if (_xinput_params->core_transport_task)
+    {
+        _xinput_params->core_transport_task(timestamp);
+    }
 }
 
-/* Populate params with XInput callbacks/descriptors and start USB if waking. */
+/* Populate params with XInput callbacks and start USB. */
 bool core_xinput_init(core_params_s *params, const dongle_wake_s *wake)
 {
     _xinput_params = params;
+
+    core_hid_apply_wake_identity(wake, &_xinput_hid_device, HHL_TUSB_XINPUT_NAME, XINPUT_DEFAULT_MFG);
 
     params->core_pollrate_us = 1000;
     params->hid_device = &_xinput_hid_device;
@@ -149,11 +106,5 @@ bool core_xinput_init(core_params_s *params, const dongle_wake_s *wake)
     params->core_task = _xinput_task;
     params->core_transport = GAMEPAD_TRANSPORT_USB;
 
-    /* Configure-only call (no wake): params are set but USB is not brought up. */
-    if (!wake)
-    {
-        return true;
-    }
-
-    return false;
+    return transport_init(params);
 }

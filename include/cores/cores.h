@@ -60,8 +60,67 @@ typedef struct
     uint16_t vid;                             /**< USB vendor ID */
     uint16_t pid;                             /**< USB product ID */
     char name[64];                            /**< Human-readable device name */
+    char manufacturer[DONGLE_WAKE_MANUFACTURER_LEN]; /**< USB manufacturer string */
+    uint16_t max_power_ma;                    /**< USB max power override (0 = use descriptor default) */
     const hoja_usb_device_descriptor_t *device_descriptor; /**< USB device descriptor */
 } core_hid_device_t;
+
+/** Copy hid->vid/pid into a mutable device descriptor used for enumeration. */
+static inline void core_hid_sync_device_descriptor(core_hid_device_t *hid,
+                                                   hoja_usb_device_descriptor_t *mutable_desc)
+{
+    if (hid == NULL || mutable_desc == NULL)
+    {
+        return;
+    }
+
+    mutable_desc->idVendor = hid->vid;
+    mutable_desc->idProduct = hid->pid;
+    hid->device_descriptor = mutable_desc;
+}
+
+/** Apply WAKE-supplied USB identity strings (and optional VID/PID) to a HID device. */
+static inline void core_hid_apply_wake_identity(const dongle_wake_s *wake,
+                                               core_hid_device_t *hid,
+                                               const char *default_name,
+                                               const char *default_mfg)
+{
+    if (wake == NULL || hid == NULL)
+    {
+        return;
+    }
+
+    if (wake->vid != 0)
+    {
+        hid->vid = wake->vid;
+    }
+    if (wake->pid != 0)
+    {
+        hid->pid = wake->pid;
+    }
+
+    if (wake->name[0] != '\0')
+    {
+        strncpy(hid->name, (const char *)wake->name, sizeof(hid->name) - 1);
+        hid->name[sizeof(hid->name) - 1] = '\0';
+    }
+    else if (default_name != NULL)
+    {
+        strncpy(hid->name, default_name, sizeof(hid->name) - 1);
+        hid->name[sizeof(hid->name) - 1] = '\0';
+    }
+
+    if (wake->manufacturer[0] != '\0')
+    {
+        strncpy(hid->manufacturer, (const char *)wake->manufacturer, sizeof(hid->manufacturer) - 1);
+        hid->manufacturer[sizeof(hid->manufacturer) - 1] = '\0';
+    }
+    else if (default_mfg != NULL)
+    {
+        strncpy(hid->manufacturer, default_mfg, sizeof(hid->manufacturer) - 1);
+        hid->manufacturer[sizeof(hid->manufacturer) - 1] = '\0';
+    }
+}
 
 /** Maximum payload size (bytes) of a generated core report. */
 #define CORE_REPORT_DATA_LEN 64
