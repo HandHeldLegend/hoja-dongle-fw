@@ -29,7 +29,7 @@
 #include "cores/core_slippi.h"
 
 #include "cores/cores.h"
-#include "cores/core_usb.h"
+
 #include <dongle_host.h>
 #include "transport/transport.h"
 
@@ -233,7 +233,7 @@ bool _core_slippi_get_generated_report(core_report_s *out)
     return true;
 }
 
-static core_usb_state_t _slippi_usb;
+
 core_params_s *_slippi_core_params = NULL;
 
 /** @brief Stop the USB transport when the core is torn down. */
@@ -252,7 +252,6 @@ void _core_slippi_task(uint64_t timestamp)
 bool core_slippi_init(core_params_s *params, const dongle_wake_s *wake)
 {
     _slippi_core_params = params;
-    _slippi_usb = (core_usb_state_t){.params = params, .transport_active = false};
 
     params->core_pollrate_us = 1000;
     params->hid_device = &_slippi_hid_device;

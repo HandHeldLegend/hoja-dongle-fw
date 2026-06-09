@@ -23,7 +23,7 @@
 #include <dongle.h>
 
 #include "cores/core_xinput.h"
-#include "cores/core_usb.h"
+
 #include "cores/cores.h"
 #include <dongle_host.h>
 #include "transport/transport.h"
@@ -71,7 +71,6 @@ static core_hid_device_t _xinput_hid_device = {
     .name = "XInput Gamepad",
 };
 
-static core_usb_state_t _xinput_usb;
 static core_params_s *_xinput_params;
 
 /** @brief Override descriptor VID/PID from a non-zero host wake request. */
@@ -140,7 +139,6 @@ static void _xinput_task(uint64_t timestamp)
 bool core_xinput_init(core_params_s *params, const dongle_wake_s *wake)
 {
     _xinput_params = params;
-    _xinput_usb = (core_usb_state_t){.params = params, .transport_active = false};
 
     params->core_pollrate_us = 1000;
     params->hid_device = &_xinput_hid_device;

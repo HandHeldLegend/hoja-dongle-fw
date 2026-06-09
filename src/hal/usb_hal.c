@@ -39,7 +39,7 @@
 #include "device/usbd_pvt.h"
 
 #if !defined(HOJA_MANUFACTURER)
-#define USB_MANUFACTURER "HOJA"
+#define USB_MANUFACTURER "HHL"
 #else
 #define USB_MANUFACTURER HOJA_MANUFACTURER
 #endif
@@ -1003,8 +1003,13 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
     }
     else
     {
-
         const char *str = global_string_descriptor[index];
+
+        /* iProduct (index 2): use the active core's name when WAKE supplied one. */
+        if (index == 2 && _usbhal_hiddev && _usbhal_hiddev->name[0] != '\0')
+        {
+            str = _usbhal_hiddev->name;
+        }
 
         // Cap at max char... WHY?
         chr_count = strlen(str);

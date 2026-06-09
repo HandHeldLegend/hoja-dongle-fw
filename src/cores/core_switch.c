@@ -25,7 +25,6 @@
 
 #include "ns_lib_hid.h"
 #include "cores/core_switch.h"
-#include "cores/core_usb.h"
 #include "cores/cores.h"
 #include <dongle_host.h>
 #include "transport/transport.h"
