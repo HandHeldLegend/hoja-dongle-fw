@@ -32,6 +32,8 @@
 
 #include "dongle_network.h"
 #include "dhcpserver.h"
+#include "utilities/dongle_pin.h"
+#include "utilities/hflash.h"
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
@@ -43,6 +45,8 @@
 
 /* The UDP socket the protocol rides on (created during AP bring-up, core 1). */
 static struct udp_pcb *_pcb = NULL;
+
+static volatile bool _ap_ready;
 
 /* lwIP RX callback: size-filter the datagram and feed it to the library. */
 static void _udp_rx_cb(void *arg, struct udp_pcb *udp, struct pbuf *p,
@@ -102,7 +106,13 @@ bool dongle_api_host_wlan_hook_ap_bringup(const char *ssid, const char *password
     udp_bind(_pcb, IP_ANY_TYPE, DONGLE_WLAN_PORT);
     udp_recv(_pcb, _udp_rx_cb, NULL);
 
+    _ap_ready = true;
     return true;
+}
+
+bool dongle_network_ap_is_ready(void)
+{
+    return _ap_ready;
 }
 
 void dongle_api_host_wlan_hook_udp_tx(const dongle_pkt_s *pkt, uint8_t ip[4], uint16_t port)
@@ -133,11 +143,14 @@ void dongle_api_host_wlan_hook_udp_tx(const dongle_pkt_s *pkt, uint8_t ip[4], ui
 
 void dongle_network_core1_entry(void)
 {
-    /* Pin reserved; the gamepad pairs on the default SSID/password. */
     dongle_cfg_host_s cfg = {0};
+    dongle_pin_get(cfg.pin);
 
-    /* Brings the AP up via dongle_api_host_wlan_hook_ap_bringup() above. */
     dongle_api_host_wlan_init(&cfg);
+
+    /* Flash lockout must not run until CYW43 is up; init the victim core now. */
+    hflash_init();
+    hflash_task();
 
     for (;;)
     {

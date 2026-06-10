@@ -43,7 +43,10 @@ bool hflash_read(uint8_t *out, uint32_t size, uint32_t page);
 /** @brief Service any pending queued write; call from a main loop. */
 void hflash_task();
 
-/** @brief Initialize the flash-safe execution helper (call once on core 0). */
+/** @return true while a queued write has not yet been committed. */
+bool hflash_pending(void);
+
+/** @brief Initialize the flash-safe execution helper (call once per core). */
 void hflash_init();
 
 #endif

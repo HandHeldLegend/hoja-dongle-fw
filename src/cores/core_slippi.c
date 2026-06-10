@@ -47,23 +47,7 @@ static core_hid_device_t _slippi_hid_device = {
  */
 void _core_slippi_output_tunnel(const uint8_t *data, uint16_t len)
 {
-    switch (data[0])
-    {
-    case 0x11:
-    {
-        uint8_t strength = (data[1] & 0x1) ? 255 : 0;
-        (void)strength;
-        break;
-    }
-
-    case 0x13:
-        break;
-
-    default:
-        break;
-    }
-
-    (void)len;
+    dongle_api_host_transport_set_outputreport(data, len);
 }
 
 /**

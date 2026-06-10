@@ -69,11 +69,10 @@ static bool _xinput_get_generated_report(core_report_s *out)
     return true;
 }
 
-/** @brief Host->device output (rumble) handler; XInput output is not bridged. */
+/** @brief Relay host OUT reports (rumble / player LED) to the gamepad over WLAN. */
 static void _xinput_output_tunnel(const uint8_t *data, uint16_t len)
 {
-    (void)data;
-    (void)len;
+    dongle_api_host_transport_set_outputreport(data, len);
 }
 
 /** @brief Stop the USB transport when the core is torn down. */

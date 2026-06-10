@@ -24,6 +24,7 @@
 #include <stdbool.h>
 
 #include "cores/cores.h"
+#include <dongle.h>
 
 /**
  * @brief GameCube controller state as reported over joybus.
@@ -122,8 +123,9 @@ typedef struct
 /**
  * @brief Initialize the GameCube core into @p params and start its joybus transport.
  * @param params Core parameter block to populate.
+ * @param wake   WAKE packet supplying WLAN identity strings (optional).
  * @return true if the joybus transport initialized successfully; false otherwise.
  */
-bool core_gamecube_init(core_params_s *params);
+bool core_gamecube_init(core_params_s *params, const dongle_wake_s *wake);
 
 #endif

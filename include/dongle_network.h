@@ -19,6 +19,8 @@
 #ifndef DONGLE_NETWORK_H
 #define DONGLE_NETWORK_H
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -31,6 +33,9 @@ extern "C" {
  * dongle_api_host_wlan_task().
  */
 void dongle_network_core1_entry(void);
+
+/** @return true once the CYW43 AP has been brought up successfully. */
+bool dongle_network_ap_is_ready(void);
 
 #ifdef __cplusplus
 }

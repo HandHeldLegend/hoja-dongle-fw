@@ -27,6 +27,8 @@
 #include "dongle_network.h"
 #include "cores/cores.h"
 #include "utilities/rgb.h"
+#include "utilities/hflash.h"
+#include "utilities/dongle_pin.h"
 
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
@@ -79,6 +81,9 @@ int main(void)
 {
     dongle_rgb_enter_bootloader_if_buttons_held();
 
+    hflash_init();
+    dongle_pin_init();
+
     stdio_init_all();
 
     /* Present a default controller before any gamepad pairs (so a console sees a
@@ -97,6 +102,12 @@ int main(void)
         uint64_t now_us = time_us_64();
 
         dongle_rgb_task(now_us);
+
+        /* Defer flash writes until CYW43 AP bring-up finishes on core 1. */
+        if (dongle_network_ap_is_ready())
+        {
+            hflash_task();
+        }
 
         /* Drains WAKE control packets (session adopt + transport bring-up) and
          * reacts to link-down (transport teardown). */

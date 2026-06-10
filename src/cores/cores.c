@@ -111,10 +111,10 @@ bool core_init(const dongle_wake_s *wake)
         return core_switch_init(&_core_params, wake);
 
     case DONGLE_MODE_N64:
-        return core_n64_init(&_core_params);
+        return core_n64_init(&_core_params, wake);
 
     case DONGLE_MODE_GAMECUBE:
-        return core_gamecube_init(&_core_params);
+        return core_gamecube_init(&_core_params, wake);
 
     case DONGLE_MODE_SLIPPI:
         return core_slippi_init(&_core_params, wake);

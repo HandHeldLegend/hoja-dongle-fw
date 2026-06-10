@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "pico/flash.h"
+#include "pico/multicore.h"
 #include "hardware/flash.h"
 #include "hardware/structs/xip_ctrl.h"
 
@@ -102,24 +103,36 @@ bool hflash_read(uint8_t *out, uint32_t size, uint32_t page)
 /* Initialize Pico's flash-safe execution helpers before any queued writes run. */
 void hflash_init()
 {
-    uint core = get_core_num();
-    if(core==0)
-    {
-        flash_safe_execute_core_init();
-    }
+    flash_safe_execute_core_init();
+}
+
+static bool _hflash_other_core_ready(void)
+{
+#if PICO_FLASH_SAFE_EXECUTE_PICO_SUPPORT_MULTICORE_LOCKOUT
+    return multicore_lockout_victim_is_initialized((uint)get_core_num() ^ 1u);
+#else
+    return true;
+#endif
+}
+
+bool hflash_pending(void)
+{
+    return _flash_go;
 }
 
 /* Service pending writes from the main transport loops. */
 void hflash_task()
 {
-    if(_flash_go)
+    if (!_flash_go || !_hflash_other_core_ready())
     {
-        flash_safe_execute(_flash_safe_write, NULL, UINT32_MAX);
+        return;
+    }
 
+    if (flash_safe_execute(_flash_safe_write, NULL, UINT32_MAX) == PICO_OK)
+    {
         _write_from = NULL;
         _write_size = 0;
         _write_offset = 0;
-
         _flash_go = false;
     }
 }

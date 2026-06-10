@@ -407,7 +407,7 @@ void _jbgc_handle_rumble()
 
   uint8_t rumble = rumblestate ? 255 : 0;
 
-  //core0_set_rumble(rumble, rumble, 0, 0);
+  dongle_api_host_transport_set_rumble(rumble, rumble, 0, 0);
 }
 
 /**
@@ -435,8 +435,8 @@ void _jbgc_handle_connection(bool connected)
 
   if (emit)
   {
-    //core0_set_player_number(connected ? 1 : 0);
-    //core0_set_transport_status(connected ? DONGLE_TRANSPORT_CONNECTED : DONGLE_TRANSPORT_IDLE);
+    dongle_api_host_transport_set_player(connected ? 1 : 0);
+    dongle_api_host_transport_set_transport(connected);
   }
 }
 
