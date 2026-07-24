@@ -23,7 +23,23 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
-set(PICO_BOARD pico2_w CACHE STRING "Board type")
+# Select the hardware layout before importing the Pico SDK.  The HOJA board is
+# RP2350-based but has a custom CYW43 pinout; the official Pico W boards use the
+# SDK board definitions and intentionally omit the wired Joybus backends.
+set(HOJA_DONGLE_BOARD "hoja" CACHE STRING "Target board: hoja, pico_w, or pico2_w")
+set_property(CACHE HOJA_DONGLE_BOARD PROPERTY STRINGS hoja pico_w pico2_w)
+
+if(HOJA_DONGLE_BOARD STREQUAL "hoja")
+    set(PICO_BOARD pico2_w CACHE STRING "Pico SDK board type" FORCE)
+elseif(HOJA_DONGLE_BOARD STREQUAL "pico_w" OR
+       HOJA_DONGLE_BOARD STREQUAL "pico2_w")
+    set(PICO_BOARD ${HOJA_DONGLE_BOARD} CACHE STRING "Pico SDK board type" FORCE)
+    set(HOJA_USB_ONLY ON)
+else()
+    message(FATAL_ERROR
+        "Unknown HOJA_DONGLE_BOARD='${HOJA_DONGLE_BOARD}'. "
+        "Expected hoja, pico_w, or pico2_w.")
+endif()
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
@@ -39,6 +55,16 @@ file(GLOB_RECURSE CORES_C "${CMAKE_CURRENT_LIST_DIR}/src/cores/*.c")
 file(GLOB_RECURSE TRANSPORTS_C "${CMAKE_CURRENT_LIST_DIR}/src/transport/*.c")
 file(GLOB_RECURSE HAL_C "${CMAKE_CURRENT_LIST_DIR}/src/hal/*.c")
 file(GLOB_RECURSE UTILS_C "${CMAKE_CURRENT_LIST_DIR}/src/utilities/*.c")
+list(FILTER UTILS_C EXCLUDE REGEX "rgb_stub\\.c$")
+
+if(HOJA_USB_ONLY)
+    # The official Pico W boards do not have the HOJA Joybus level/interface
+    # hardware or its front-panel LEDs/buttons.
+    list(FILTER HAL_C EXCLUDE REGEX "joybus_(n64|gc)_hal\\.c$")
+    list(FILTER HAL_C EXCLUDE REGEX "rgb_hal\\.c$")
+    list(FILTER UTILS_C EXCLUDE REGEX "rgb\\.c$")
+    list(APPEND UTILS_C "${CMAKE_CURRENT_LIST_DIR}/src/utilities/rgb_stub.c")
+endif()
 
 add_executable(hoja-dongle-fw 
     src/main.c 
@@ -53,8 +79,9 @@ add_executable(hoja-dongle-fw
 pico_set_program_name(hoja-dongle-fw "hoja-dongle-fw")
 pico_set_program_version(hoja-dongle-fw "0.1")
 
-# PROTOTYPE BOARD DEFINES
-target_compile_definitions(hoja-dongle-fw PRIVATE
+# HOJA production/prototype board pinout.
+if(HOJA_DONGLE_BOARD STREQUAL "hoja")
+    target_compile_definitions(hoja-dongle-fw PRIVATE
         CYW43_DEFAULT_PIN_WL_REG_ON=21
         CYW43_DEFAULT_PIN_WL_DATA_OUT=22
         CYW43_DEFAULT_PIN_WL_DATA_IN=22
@@ -69,6 +96,9 @@ target_compile_definitions(hoja-dongle-fw PRIVATE
         HOJA_BTN2_PIN=29
         CYW43_USES_VSYS_PIN=0
         )
+else()
+    target_compile_definitions(hoja-dongle-fw PRIVATE HOJA_USB_ONLY=1)
+endif()
 
 # Add the standard library to the build
 target_link_libraries(hoja-dongle-fw
@@ -100,7 +130,9 @@ target_link_libraries(hoja-dongle-fw
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/include/generated)
 pico_generate_pio_header(hoja-dongle-fw ${CMAKE_CURRENT_LIST_DIR}/pio/ws2812.pio OUTPUT_DIR ${CMAKE_CURRENT_LIST_DIR}/include/generated)
 pico_generate_pio_header(hoja-dongle-fw ${CMAKE_CURRENT_LIST_DIR}/pio/nserial.pio OUTPUT_DIR ${CMAKE_CURRENT_LIST_DIR}/include/generated)
-pico_generate_pio_header(hoja-dongle-fw ${CMAKE_CURRENT_LIST_DIR}/pio/joybus.pio OUTPUT_DIR ${CMAKE_CURRENT_LIST_DIR}/include/generated)
+if(NOT HOJA_USB_ONLY)
+    pico_generate_pio_header(hoja-dongle-fw ${CMAKE_CURRENT_LIST_DIR}/pio/joybus.pio OUTPUT_DIR ${CMAKE_CURRENT_LIST_DIR}/include/generated)
+endif()
 
 # Modify the below lines to enable/disable output over UART/USB
 pico_enable_stdio_uart(hoja-dongle-fw 0)

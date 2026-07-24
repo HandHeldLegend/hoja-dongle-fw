@@ -71,7 +71,7 @@ core_params_s *core_current_params(void)
     return &_core_params;
 }
 
-/* Default mode used when the dongle boots before a host has selected one. */
+/* Default mode used by the HOJA board before a host has selected one. */
 static const dongle_session_s _boot_session = {
     .mode = DONGLE_MODE_N64, .id = 0
 };
@@ -110,11 +110,13 @@ bool core_init(const dongle_wake_s *wake)
     case DONGLE_MODE_SWITCH:
         return core_switch_init(&_core_params, wake);
 
+#if !defined(HOJA_USB_ONLY)
     case DONGLE_MODE_N64:
         return core_n64_init(&_core_params, wake);
 
     case DONGLE_MODE_GAMECUBE:
         return core_gamecube_init(&_core_params, wake);
+#endif
 
     case DONGLE_MODE_SLIPPI:
         return core_slippi_init(&_core_params, wake);

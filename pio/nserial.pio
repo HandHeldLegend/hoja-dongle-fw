@@ -3,6 +3,7 @@
 ;
 
 ; Emulation of a 4021 (x2) shift register
+.pio_version 0
 .program nserial
 
 .wrap_target

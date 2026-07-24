@@ -86,9 +86,13 @@ int main(void)
 
     stdio_init_all();
 
-    /* Present a default controller before any gamepad pairs (so a console sees a
-     * device immediately). The first WAKE re-selects the gamepad's personality. */
+    /* The HOJA board presents its wired N64 transport before a gamepad pairs.
+     * Official Pico W boards are USB-only and remain transport-idle until a
+     * WAKE packet selects the paired gamepad's USB personality. Starting a
+     * placeholder USB device here can interfere with WLAN startup/restarts. */
+#if !defined(HOJA_USB_ONLY)
     core_init(core_boot_wake());
+#endif
 
     /* Core 1 owns the radio + the dongle host wlan task. */
     multicore_launch_core1(dongle_network_core1_entry);

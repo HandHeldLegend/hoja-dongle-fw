@@ -1,0 +1,52 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "hoja",
+      "displayName": "HOJA Dongle",
+      "inherits": "base",
+      "cacheVariables": {
+        "HOJA_DONGLE_BOARD": "hoja"
+      }
+    },
+    {
+      "name": "pico-w",
+      "displayName": "Raspberry Pi Pico W (USB only)",
+      "inherits": "base",
+      "cacheVariables": {
+        "HOJA_DONGLE_BOARD": "pico_w"
+      }
+    },
+    {
+      "name": "pico-2w",
+      "displayName": "Raspberry Pi Pico 2 W (USB only)",
+      "inherits": "base",
+      "cacheVariables": {
+        "HOJA_DONGLE_BOARD": "pico2_w"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "hoja",
+      "configurePreset": "hoja"
+    },
+    {
+      "name": "pico-w",
+      "configurePreset": "pico-w"
+    },
+    {
+      "name": "pico-2w",
+      "configurePreset": "pico-2w"
+    }
+  ]
+}
