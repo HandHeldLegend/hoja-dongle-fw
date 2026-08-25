@@ -44,7 +44,14 @@ typedef enum
   N64_CMD_POLL = 0x01,     /**< Request the current button/stick report. */
   N64_CMD_READMEM = 0x02,  /**< Read 32 bytes from the mem/rumble pak address space. */
   N64_CMD_WRITEMEM = 0x03, /**< Write 32 bytes to the mem/rumble pak address space. */
-  N64_CMD_GAMEID = 0x1D,   /**< PixelFX N64Digital "Game ID": 10-byte payload. */
+  /* PixelFX N64Digital "Game ID": command byte plus a 10-byte payload carrying
+   * the ROM CRCs, media format and country code.
+   * https://gitlab.com/pixelfx-public/n64-game-id
+   *
+   * Listed for reference only -- nothing here implements it. N64Digital is a
+   * passive bus sniffer and expects no reply, so it falls through to the
+   * unknown-command path and the whole frame is dropped. */
+  N64_CMD_GAMEID = 0x1D,
   N64_CMD_RESET = 0xFF     /**< Reset: treated like probe here. */
 } n64_cmd_t;
 
@@ -67,6 +74,9 @@ core_params_s *_n64_hal_params = NULL;
 #define PIO_IRQ_USE_1 PIO0_IRQ_1
 
 #define PIO_SM 0
+/* Decoder is hard-coded to SM 0 and never claims it, so the watcher takes a
+ * fixed index rather than asking the claim API for a "free" one. */
+#define PIO_SM_EOF 1
 
 #define CLAMP_0_255(value) ((value) < 0 ? 0 : ((value) > 255 ? 255 : (value)))
 /* Joybus shifts MSB-first from the top of the 32-bit word, so an 8-bit reply
@@ -83,6 +93,15 @@ bool _n64_rumble = false; /**< Latest rumble motor request decoded from a pak wr
 volatile static uint8_t _workingCmd = 0x00; /**< Multi-byte command currently being assembled in the ISR. */
 volatile static uint8_t _byteCount = 0;     /**< Bytes received so far for the in-progress command. */
 volatile uint8_t _crc_reply = 0;            /**< Running CRC accumulated over a pak-write payload. */
+
+/* End-of-frame watcher: a second state machine on the same PIO block that
+ * raises IRQ 1 once per frame (see joybus_eof in joybus.pio). It lets us drop
+ * a command we do not implement without knowing its length. Optional -- if it
+ * could not be allocated the transport still works, minus bus healing. */
+uint _n64_eof_offset;             /**< Instruction-memory offset of the watcher program. */
+pio_sm_config _n64_eof_c;         /**< Cached watcher state machine config. */
+bool _n64_eof_active = false;     /**< True once the watcher is allocated and running. */
+volatile static bool _n64_drop_frame = false; /**< Discard bytes until the current frame ends. */
 
 volatile bool _n64_got_data = false;  /**< Set by the ISR whenever a command was handled (connection/watchdog). */
 volatile bool _n64_sent_data = false; /**< Set after a poll reply so the task can pace the wireless link pump. */
@@ -183,9 +202,6 @@ void _n64_send_poll()
 
 #define PAK_MSG_BYTES 33 /**< Pak write payload length: 1 trailing index byte after 32 data bytes. */
 
-#define N64_GAMEID_PAYLOAD_BYTES 10                            /**< Game ID payload: CRC1[4], CRC2[4], media format, country code. */
-#define N64_CMD_GAMEID_BYTES (N64_GAMEID_PAYLOAD_BYTES - 1)    /**< Last payload index, matching the PAK_MSG_BYTES convention. */
-
 // Constants for default cycles and clock speeds
 // 1 cycle is about 0.05us delay time
 
@@ -212,6 +228,14 @@ uint8_t _n64_hal_in_buffer[64] = {0}; /**< Scratch buffer for incoming multi-byt
 void __time_critical_func(_n64_command_handler)()
 {
   uint32_t c = DEFAULT_CYCLES;
+
+  // Unknown command in flight: drain and discard until the watcher tells us the
+  // frame ended. Length does not matter, which is the whole point.
+  if (_n64_drop_frame)
+  {
+    (void)pio_sm_get(PIO_IN_USE_N64, PIO_SM);
+    return;
+  }
 
   // Resume working on commands that are longer than 1 byte
   if (_workingCmd == N64_CMD_WRITEMEM)
@@ -277,35 +301,6 @@ void __time_critical_func(_n64_command_handler)()
     else
       _byteCount++;
   }
-  else if (_workingCmd == N64_CMD_GAMEID)
-  {
-    // Must drain every byte the PIO pushes. The RX FIFO is only 4 deep and
-    // autopush stalls the state machine on a full FIFO, so skipping the read
-    // wedges the bus partway through this command.
-    _n64_hal_in_buffer[_byteCount] = pio_sm_get(PIO_IN_USE_N64, PIO_SM);
-
-    if (_byteCount >= N64_CMD_GAMEID_BYTES)
-    {
-      _workingCmd = 0;
-      _byteCount = 0;
-
-      // N64Digital is a passive sniffer and expects no reply, but we answer
-      // anyway: the receive loop has no stop-bit framing, so jumping to the
-      // output routine is the only thing that resynchronizes the bit counter
-      // after the console's stop bit. Consuming silently leaves the SM a bit
-      // out of phase and every following command decodes as garbage.
-      joybus_jump_output(PIO_IN_USE_N64, PIO_SM, _n64_offset);
-
-      // End receive so we respond
-      c = _delay_cycles_memread;
-      while (c--)
-        asm("nop");
-
-      _n64_send_probe();
-    }
-    else
-      _byteCount++;
-  }
   // Single byte commands and setup
   // for future handling
   else
@@ -314,7 +309,12 @@ void __time_critical_func(_n64_command_handler)()
 
     switch (_workingCmd)
     {
+    // Anything we do not implement. Previously this left _workingCmd set to the
+    // unknown opcode, so the payload was re-parsed as further commands and could
+    // fire spurious replies onto the bus mid-frame. Drop the whole frame instead.
     default:
+      _n64_drop_frame = true;
+      _workingCmd = 0;
       break;
 
     // Read from mem pak
@@ -326,12 +326,6 @@ void __time_critical_func(_n64_command_handler)()
     case N64_CMD_WRITEMEM:
       _crc_reply = 0;
       break;
-
-    // N64Digital game ID: 10 payload bytes follow, drained by the branch above.
-    case N64_CMD_GAMEID:
-      _byteCount = 0;
-      break;
-
 
     // Probe/Reset target response time 3us
     case N64_CMD_RESET:
@@ -359,19 +353,49 @@ void __time_critical_func(_n64_command_handler)()
 }
 
 /**
+ * @brief Settle bus state at end of frame, so an unknown command costs nothing.
+ *
+ * Runs in interrupt/time-critical context off the watcher's IRQ 1.
+ */
+static void __time_critical_func(_n64_eof_handler)(void)
+{
+  // The watcher cannot tell who drove the line, so it also fires after our own
+  // response's stop bit. Nothing in flight means we either answered the frame or
+  // the bus is simply idle -- resetting here would truncate a reply that is
+  // still shifting out of the TX FIFO. This guard is mandatory, not an
+  // optimization.
+  if (!_n64_drop_frame && !_workingCmd)
+    return;
+
+  _n64_drop_frame = false;
+  _workingCmd = 0;
+  _byteCount = 0;
+  _crc_reply = 0;
+
+  joybus_program_reset(PIO_IN_USE_N64, PIO_SM, _n64_offset);
+}
+
+/**
  * @brief PIO interrupt entry point; dispatches to the command handler.
  *
  * Masks the IRQ for the duration so the handler runs uninterrupted, clears the
- * PIO interrupt flag, and records that traffic was seen for the watchdog.
+ * PIO interrupt flags, and records that traffic was seen for the watchdog.
  */
 static void __time_critical_func(_n64_isr_handler)(void)
 {
   irq_set_enabled(_n64_irq, false);
+  // Byte first: if both are pending, that byte belongs to the frame that just
+  // ended and must be consumed before we resync.
   if (pio_interrupt_get(PIO_IN_USE_N64, 0))
   {
     pio_interrupt_clear(PIO_IN_USE_N64, 0);
     _n64_command_handler();
     _n64_got_data = true;
+  }
+  if (_n64_eof_active && pio_interrupt_get(PIO_IN_USE_N64, 1))
+  {
+    pio_interrupt_clear(PIO_IN_USE_N64, 1);
+    _n64_eof_handler();
   }
   irq_set_enabled(_n64_irq, true);
 }
@@ -391,6 +415,7 @@ void _n64_reset_state()
   _workingCmd = 0;
   _byteCount = 0;
   _crc_reply = 0;
+  _n64_drop_frame = false;
 }
 
 /**
@@ -411,6 +436,16 @@ bool _joybus_n64_hal_init()
   irq_set_priority(PIO_IRQ_USE_0, 0);
 
   joybus_program_init(PIO_IN_USE_N64, PIO_SM, _n64_offset, JOYBUS_N64_DRIVER_DATA_PIN, &_n64_c);
+
+  // Must share the decoder's PIO block so both raise the same NVIC line and this
+  // one handler services both.
+  _n64_eof_active = joybus_eof_try_add(PIO_IN_USE_N64, PIO_SM_EOF, JOYBUS_N64_DRIVER_DATA_PIN,
+                                       &_n64_eof_offset, &_n64_eof_c);
+  if (_n64_eof_active)
+  {
+    pio_set_irq0_source_enabled(PIO_IN_USE_N64, pis_interrupt1, true);
+  }
+
   irq_set_enabled(_n64_irq, true);
   return true;
 }
@@ -505,8 +540,19 @@ void transport_jb64_stop()
   // Remove the IRQ handler
   irq_remove_handler(_n64_irq, _n64_isr_handler);
 
-  // Disable the PIO IRQ source
+  // Disable the PIO IRQ sources
   pio_set_irq0_source_enabled(PIO_IN_USE_N64, pis_interrupt0, false);
+  pio_set_irq0_source_enabled(PIO_IN_USE_N64, pis_interrupt1, false);
+
+  // Tear down the end-of-frame watcher, releasing its SM and instruction space
+  // so a stop/start cycle can claim them again.
+  if (_n64_eof_active)
+  {
+    pio_sm_set_enabled(PIO_IN_USE_N64, PIO_SM_EOF, false);
+    pio_remove_program(PIO_IN_USE_N64, &joybus_eof_program, _n64_eof_offset);
+    pio_sm_unclaim(PIO_IN_USE_N64, PIO_SM_EOF);
+    _n64_eof_active = false;
+  }
 
   // Disable and clean up the state machine
   pio_sm_set_enabled(PIO_IN_USE_N64, PIO_SM, false);
@@ -519,6 +565,7 @@ void transport_jb64_stop()
   _workingCmd = 0x00;
   _byteCount = 0;
   _crc_reply = 0;
+  _n64_drop_frame = false;
   _n64_got_data = false;
   _n64_sent_data = false;
   _n64_rumble = false;

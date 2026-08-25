@@ -13,11 +13,11 @@
 // ------ //
 
 #define joybus_wrap_target 0
-#define joybus_wrap 26
+#define joybus_wrap 25
 #define joybus_pio_version 0
 
 #define joybus_offset_joybusin 0u
-#define joybus_offset_joybusout 11u
+#define joybus_offset_joybusout 10u
 
 static const uint16_t joybus_program_instructions[] = {
             //     .wrap_target
@@ -26,35 +26,34 @@ static const uint16_t joybus_program_instructions[] = {
     0xa0c3, //  2: mov    isr, null
     0xe027, //  3: set    x, 7
     0x20a0, //  4: wait   1 pin, 0
-    0x2720, //  5: wait   0 pin, 0               [7]
-    0xa042, //  6: nop
-    0x4001, //  7: in     pins, 1
-    0x0044, //  8: jmp    x--, 4
-    0xc000, //  9: irq    nowait 0
-    0x0003, // 10: jmp    3
-    0xe080, // 11: set    pindirs, 0
-    0xe000, // 12: set    pins, 0
-    0x6021, // 13: out    x, 1
-    0xe081, // 14: set    pindirs, 1
-    0xa042, // 15: nop
-    0x0034, // 16: jmp    !x, 20
-    0xa042, // 17: nop
-    0xe880, // 18: set    pindirs, 0             [8]
-    0x0016, // 19: jmp    22
-    0xa842, // 20: nop                           [8]
-    0xe180, // 21: set    pindirs, 0             [1]
-    0x00ed, // 22: jmp    !osre, 13
-    0xa042, // 23: nop
-    0xe781, // 24: set    pindirs, 1             [7]
-    0xe780, // 25: set    pindirs, 0             [7]
-    0x0000, // 26: jmp    0
+    0x2820, //  5: wait   0 pin, 0               [8]
+    0x4001, //  6: in     pins, 1
+    0x0044, //  7: jmp    x--, 4
+    0xc000, //  8: irq    nowait 0
+    0x0003, //  9: jmp    3
+    0xe080, // 10: set    pindirs, 0
+    0xe000, // 11: set    pins, 0
+    0x6021, // 12: out    x, 1
+    0xe081, // 13: set    pindirs, 1
+    0xa042, // 14: nop
+    0x0033, // 15: jmp    !x, 19
+    0xa042, // 16: nop
+    0xe880, // 17: set    pindirs, 0             [8]
+    0x0015, // 18: jmp    21
+    0xa842, // 19: nop                           [8]
+    0xe180, // 20: set    pindirs, 0             [1]
+    0x00ec, // 21: jmp    !osre, 12
+    0xa042, // 22: nop
+    0xe781, // 23: set    pindirs, 1             [7]
+    0xe780, // 24: set    pindirs, 0             [7]
+    0x0000, // 25: jmp    0
             //     .wrap
 };
 
 #if !PICO_NO_HARDWARE
 static const struct pio_program joybus_program = {
     .instructions = joybus_program_instructions,
-    .length = 27,
+    .length = 26,
     .origin = -1,
     .pio_version = joybus_pio_version,
 #if PICO_PIO_VERSION > 0
@@ -65,6 +64,43 @@ static const struct pio_program joybus_program = {
 static inline pio_sm_config joybus_program_get_default_config(uint offset) {
     pio_sm_config c = pio_get_default_sm_config();
     sm_config_set_wrap(&c, offset + joybus_wrap_target, offset + joybus_wrap);
+    return c;
+}
+#endif
+
+// ---------- //
+// joybus_eof //
+// ---------- //
+
+#define joybus_eof_wrap_target 0
+#define joybus_eof_wrap 5
+#define joybus_eof_pio_version 0
+
+static const uint16_t joybus_eof_program_instructions[] = {
+            //     .wrap_target
+    0x2020, //  0: wait   0 pin, 0
+    0xe04d, //  1: set    y, 13
+    0x00c4, //  2: jmp    pin, 4
+    0x0001, //  3: jmp    1
+    0x0082, //  4: jmp    y--, 2
+    0xc001, //  5: irq    nowait 1
+            //     .wrap
+};
+
+#if !PICO_NO_HARDWARE
+static const struct pio_program joybus_eof_program = {
+    .instructions = joybus_eof_program_instructions,
+    .length = 6,
+    .origin = -1,
+    .pio_version = joybus_eof_pio_version,
+#if PICO_PIO_VERSION > 0
+    .used_gpio_ranges = 0x0
+#endif
+};
+
+static inline pio_sm_config joybus_eof_program_get_default_config(uint offset) {
+    pio_sm_config c = pio_get_default_sm_config();
+    sm_config_set_wrap(&c, offset + joybus_eof_wrap_target, offset + joybus_eof_wrap);
     return c;
 }
 
@@ -103,6 +139,50 @@ static inline void joybus_program_init(PIO pio, uint sm, uint offset, uint pin, 
     pio_sm_init(pio, sm, offset, c);
     // Set the state machine running
     pio_sm_set_enabled(pio, sm, true);
+}
+static inline void joybus_eof_program_init(PIO pio, uint sm, uint offset, uint pin, pio_sm_config *c) {
+    *c = joybus_eof_program_get_default_config(offset);
+    // Observer only. Deliberately no pio_gpio_init() and no SET/OUT pin
+    // config: the decoder owns the pad, and PIO input sampling sees the pin
+    // regardless of which peripheral holds funcsel.
+    // Same 4MHz cell clock as the decoder, so the ~7us threshold below holds.
+    float div = clock_get_hz(clk_sys) / (4000000);
+    sm_config_set_clkdiv(c, div);
+    sm_config_set_in_pins(c, pin);   // for `wait n pin, 0`
+    sm_config_set_jmp_pin(c, pin);   // for `jmp pin`
+    pio_sm_init(pio, sm, offset, c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+/**
+ * Try to add the end-of-frame watcher alongside an already-loaded decoder.
+ *
+ * The watcher must share the decoder's PIO block so both raise the same NVIC
+ * line and one handler services both. It is optional: if the block is out of
+ * instruction space or state machines, we degrade to decoder-only, which costs
+ * bus healing on unknown commands but not the transport itself.
+ *
+ * Returns true if the watcher was allocated and started.
+ */
+/* The watcher is optional at runtime, which means running out of instruction
+ * space would disable it *silently* -- the transport keeps working and a
+ * hardware test just shows no bus healing, for no visible reason. The decoder
+ * currently sits at 26 and the watcher at 6, exactly filling a block, so catch
+ * that regression here instead of on a bench. */
+_Static_assert((joybus_wrap - joybus_wrap_target + 1) +
+                   (joybus_eof_wrap - joybus_eof_wrap_target + 1) <= 32,
+               "joybus decoder + end-of-frame watcher no longer fit in one PIO block");
+static inline bool joybus_eof_try_add(PIO pio, uint sm, uint pin, uint *offset, pio_sm_config *c)
+{
+    // The caller names the state machine rather than us calling
+    // pio_claim_unused_sm(): the decoder runs on a hard-coded SM index that it
+    // never claims, so the claim API would consider that SM free and hand it
+    // straight back to us.
+    if (pio_sm_is_claimed(pio, sm)) return false;
+    if (!pio_can_add_program(pio, &joybus_eof_program)) return false;
+    pio_sm_claim(pio, sm);
+    *offset = pio_add_program(pio, &joybus_eof_program);
+    joybus_eof_program_init(pio, sm, *offset, pin, c);
+    return true;
 }
 
 #endif

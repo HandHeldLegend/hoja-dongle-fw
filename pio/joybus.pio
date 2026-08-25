@@ -18,8 +18,10 @@ bytestart:
   set x, 7 ; Set x scratch register as bit counter to allow 8 loops
 bitloop:
   wait 1 pin, 0     ; Wait for line HIGH
-  wait 0 pin, 0 [7]
-  nop
+  ; 8 delay cycles = 2us after the falling edge, midway between the 1us of a
+  ; '1' bit and the 3us of a '0'. Folded from `[7]` + `nop` to free an
+  ; instruction slot for joybus_eof below -- cycle-identical, do not "tidy".
+  wait 0 pin, 0 [8]
   ; Get the level and put it into ISR
   in pins, 1
   ; Decrement x and jump to bitloop if we aren't at 0 yet
@@ -51,6 +53,37 @@ do_end_check:
     set pindirs, 0 [7] ; 8 cycles HIGH (2μs) ✓
     ;irq nowait 1
     jmp joybusin
+.wrap
+
+; End-of-frame watcher.
+;
+; The decoder above cannot tell where a command ends -- length is inferred
+; per-command, which by construction cannot work for a command we do not
+; implement. This is a pure observer on the same data line that raises IRQ 1
+; once per frame, so the C side can drop an unknown command wholesale without
+; knowing how long it was.
+;
+; Bit cell is 4us: a '0' is 3us low / 1us high, a '1' is 1us low / 3us high.
+; So inside a frame the line is never released high for more than ~3us. Held
+; high past that means the console has sent its stop bit and gone idle.
+;
+; Never drives the pin and never touches pindirs, so it shares the pad with
+; the decoder.
+.program joybus_eof
+
+.wrap_target
+    ; Block until there is bus activity at all. This is what limits us to one
+    ; IRQ per frame no matter how long the bus idles between frames -- do not
+    ; restructure this away, see the note in joybus_eof_program_init.
+    wait 0 pin, 0
+arm:
+    set y, 13           ; ~7us: 14 iterations x 2 cycles at 4MHz
+count:
+    jmp pin decr        ; line still high?
+    jmp arm             ; it fell again -> more bits coming, re-arm
+decr:
+    jmp y-- count
+    irq nowait 1        ; held high past any intra-frame gap -> frame ended
 .wrap
 
 % c-sdk {
@@ -104,5 +137,59 @@ static inline void joybus_program_init(PIO pio, uint sm, uint offset, uint pin, 
 
     // Set the state machine running
     pio_sm_set_enabled(pio, sm, true);
+}
+
+static inline void joybus_eof_program_init(PIO pio, uint sm, uint offset, uint pin, pio_sm_config *c) {
+
+    *c = joybus_eof_program_get_default_config(offset);
+
+    // Observer only. Deliberately no pio_gpio_init() and no SET/OUT pin
+    // config: the decoder owns the pad, and PIO input sampling sees the pin
+    // regardless of which peripheral holds funcsel.
+
+    // Same 4MHz cell clock as the decoder, so the ~7us threshold below holds.
+    float div = clock_get_hz(clk_sys) / (4000000);
+    sm_config_set_clkdiv(c, div);
+
+    sm_config_set_in_pins(c, pin);   // for `wait n pin, 0`
+    sm_config_set_jmp_pin(c, pin);   // for `jmp pin`
+
+    pio_sm_init(pio, sm, offset, c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+/**
+ * Try to add the end-of-frame watcher alongside an already-loaded decoder.
+ *
+ * The watcher must share the decoder's PIO block so both raise the same NVIC
+ * line and one handler services both. It is optional: if the block is out of
+ * instruction space or state machines, we degrade to decoder-only, which costs
+ * bus healing on unknown commands but not the transport itself.
+ *
+ * Returns true if the watcher was allocated and started.
+ */
+/* The watcher is optional at runtime, which means running out of instruction
+ * space would disable it *silently* -- the transport keeps working and a
+ * hardware test just shows no bus healing, for no visible reason. The decoder
+ * currently sits at 26 and the watcher at 6, exactly filling a block, so catch
+ * that regression here instead of on a bench. */
+_Static_assert((joybus_wrap - joybus_wrap_target + 1) +
+                   (joybus_eof_wrap - joybus_eof_wrap_target + 1) <= 32,
+               "joybus decoder + end-of-frame watcher no longer fit in one PIO block");
+
+static inline bool joybus_eof_try_add(PIO pio, uint sm, uint pin, uint *offset, pio_sm_config *c)
+{
+    // The caller names the state machine rather than us calling
+    // pio_claim_unused_sm(): the decoder runs on a hard-coded SM index that it
+    // never claims, so the claim API would consider that SM free and hand it
+    // straight back to us.
+    if (pio_sm_is_claimed(pio, sm)) return false;
+    if (!pio_can_add_program(pio, &joybus_eof_program)) return false;
+
+    pio_sm_claim(pio, sm);
+    *offset = pio_add_program(pio, &joybus_eof_program);
+
+    joybus_eof_program_init(pio, sm, *offset, pin, c);
+    return true;
 }
 %}

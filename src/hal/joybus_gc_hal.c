@@ -67,6 +67,9 @@ core_params_s *_gc_core_params = NULL;
 #endif
 
 #define PIO_SM 0
+/* Decoder is hard-coded to SM 0 and never claims it, so the watcher takes a
+ * fixed index rather than asking the claim API for a "free" one. */
+#define PIO_SM_EOF 1
 
 #define CLAMP_0_255(value) ((value) < 0 ? 0 : ((value) > 255 ? 255 : (value)))
 /* Joybus shifts MSB-first from the top of the 32-bit word, so an 8-bit reply
@@ -82,6 +85,15 @@ volatile bool _gc_sent_data = false; /**< Set after a poll reply so the task can
 bool _gc_running = false;
 volatile bool _gc_rumble = false; /**< Latest rumble motor request decoded from a poll command. */
 bool _gc_brake = false;           /**< Latest hard-stop (brake) request decoded from a poll command. */
+
+/* End-of-frame watcher: a second state machine on the same PIO block that
+ * raises IRQ 1 once per frame (see joybus_eof in joybus.pio). It lets us drop
+ * a command we do not implement without knowing its length. Optional -- if it
+ * could not be allocated the transport still works, minus bus healing. */
+uint _gc_eof_offset;             /**< Instruction-memory offset of the watcher program. */
+pio_sm_config _gc_eof_c;         /**< Cached watcher state machine config. */
+bool _gc_eof_active = false;     /**< True once the watcher is allocated and running. */
+volatile bool _gc_drop_frame = false; /**< Discard bytes until the current frame ends. */
 
 volatile uint8_t _gamecube_in_buffer[8] = {0};
 
@@ -145,6 +157,7 @@ volatile uint8_t _workingMode = 0x03;          /**< Analog report mode selected 
 void _gamecube_reset_state()
 {
   _byteCounter = BYTECOUNT_UNKNOWN;
+  _gc_drop_frame = false;
   joybus_program_init(GC_PIO_IN_USE, PIO_SM, _gamecube_offset, JOYBUS_GC_DRIVER_DATA_PIN, &_gamecube_c);
 }
 
@@ -172,6 +185,14 @@ void __time_critical_func(_gamecube_command_handler)()
   bool ret = false;
   uint8_t dat = 0;
   uint16_t c;
+
+  // Unknown command in flight: drain and discard until the watcher tells us the
+  // frame ended. Length does not matter, which is the whole point.
+  if (_gc_drop_frame)
+  {
+    (void)pio_sm_get(GC_PIO_IN_USE, PIO_SM);
+    return;
+  }
 
   // Single byte commands handle here
   if (_byteCounter == BYTECOUNT_UNKNOWN)
@@ -204,9 +225,21 @@ void __time_critical_func(_gamecube_command_handler)()
     {
       _byteCounter = BYTECOUNT_SWISS;
     }
-    else
+    // Both of these carry BYTECOUNT_DEFAULT payload bytes and used to reach it
+    // via the catch-all below. They have to be named explicitly now that the
+    // catch-all drops the frame instead of guessing a length.
+    else if (_workingCmd == GCUBE_CMD_POLL || _workingCmd == GCUBE_CMD_ORIGINEXT)
     {
       _byteCounter = BYTECOUNT_DEFAULT;
+    }
+    else
+    {
+      // Anything we do not implement. Guessing BYTECOUNT_DEFAULT here was wrong
+      // for any command longer than 2 bytes: the surplus payload got parsed as
+      // further commands and could fire spurious responses onto the bus.
+      _gc_drop_frame = true;
+      _workingCmd = 0;
+      return;
     }
   }
   else
@@ -282,18 +315,47 @@ void __time_critical_func(_gamecube_command_handler)()
 }
 
 /**
+ * @brief Settle bus state at end of frame, so an unknown command costs nothing.
+ *
+ * Runs in interrupt/time-critical context off the watcher's IRQ 1.
+ */
+static void __time_critical_func(_gamecube_eof_handler)(void)
+{
+  // The watcher cannot tell who drove the line, so it also fires after our own
+  // response's stop bit. Nothing in flight means we either answered the frame or
+  // the bus is simply idle -- resetting here would truncate a reply that is
+  // still shifting out of the TX FIFO. This guard is mandatory, not an
+  // optimization.
+  if (!_gc_drop_frame && (_byteCounter == BYTECOUNT_UNKNOWN))
+    return;
+
+  _gc_drop_frame = false;
+  _byteCounter = BYTECOUNT_UNKNOWN;
+  _workingCmd = 0;
+
+  joybus_program_reset(GC_PIO_IN_USE, PIO_SM, _gamecube_offset);
+}
+
+/**
  * @brief PIO interrupt entry point; dispatches to the command handler.
  *
  * Masks the IRQ for the duration so the handler runs uninterrupted and clears
- * the PIO interrupt flag.
+ * the PIO interrupt flags.
  */
 static void __time_critical_func(_gamecube_isr_handler)(void)
 {
   irq_set_enabled(_gamecube_irq, false);
+  // Byte first: if both are pending, that byte belongs to the frame that just
+  // ended and must be consumed before we resync.
   if (pio_interrupt_get(GC_PIO_IN_USE, 0))
   {
     pio_interrupt_clear(GC_PIO_IN_USE, 0);
     _gamecube_command_handler();
+  }
+  if (_gc_eof_active && pio_interrupt_get(GC_PIO_IN_USE, 1))
+  {
+    pio_interrupt_clear(GC_PIO_IN_USE, 1);
+    _gamecube_eof_handler();
   }
   irq_set_enabled(_gamecube_irq, true);
 }
@@ -317,6 +379,16 @@ bool _joybus_gc_hal_init()
   // irq_set_priority(PIO_IRQ_USE_1, 0);
 
   joybus_program_init(GC_PIO_IN_USE, PIO_SM, _gamecube_offset, JOYBUS_GC_DRIVER_DATA_PIN, &_gamecube_c);
+
+  // Must share the decoder's PIO block so both raise the same NVIC line and this
+  // one handler services both.
+  _gc_eof_active = joybus_eof_try_add(GC_PIO_IN_USE, PIO_SM_EOF, JOYBUS_GC_DRIVER_DATA_PIN,
+                                      &_gc_eof_offset, &_gc_eof_c);
+  if (_gc_eof_active)
+  {
+    pio_set_irq0_source_enabled(GC_PIO_IN_USE, pis_interrupt1, true);
+  }
+
   irq_set_enabled(_gamecube_irq, true);
   _gc_running = true;
 
@@ -486,8 +558,19 @@ void transport_jbgc_stop()
   // Remove the IRQ handler
   irq_remove_handler(_gamecube_irq, _gamecube_isr_handler);
 
-  // Disable the PIO IRQ source
+  // Disable the PIO IRQ sources
   pio_set_irq0_source_enabled(GC_PIO_IN_USE, pis_interrupt0, false);
+  pio_set_irq0_source_enabled(GC_PIO_IN_USE, pis_interrupt1, false);
+
+  // Tear down the end-of-frame watcher, releasing its SM and instruction space
+  // so a stop/start cycle can claim them again.
+  if (_gc_eof_active)
+  {
+    pio_sm_set_enabled(GC_PIO_IN_USE, PIO_SM_EOF, false);
+    pio_remove_program(GC_PIO_IN_USE, &joybus_eof_program, _gc_eof_offset);
+    pio_sm_unclaim(GC_PIO_IN_USE, PIO_SM_EOF);
+    _gc_eof_active = false;
+  }
 
   // Disable and clean up the state machine
   pio_sm_set_enabled(GC_PIO_IN_USE, PIO_SM, false);
@@ -499,6 +582,7 @@ void transport_jbgc_stop()
   // Reset internal state
   _byteCounter = BYTECOUNT_UNKNOWN;
   _workingCmd = 0x00;
+  _gc_drop_frame = false;
   _workingMode = 0x03;
   _gc_got_data = false;
   _gc_sent_data = false;
