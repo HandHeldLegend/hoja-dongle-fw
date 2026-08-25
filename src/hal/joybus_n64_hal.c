@@ -44,6 +44,7 @@ typedef enum
   N64_CMD_POLL = 0x01,     /**< Request the current button/stick report. */
   N64_CMD_READMEM = 0x02,  /**< Read 32 bytes from the mem/rumble pak address space. */
   N64_CMD_WRITEMEM = 0x03, /**< Write 32 bytes to the mem/rumble pak address space. */
+  N64_CMD_GAMEID = 0x1D,   /**< PixelFX N64Digital "Game ID": 10-byte payload. */
   N64_CMD_RESET = 0xFF     /**< Reset: treated like probe here. */
 } n64_cmd_t;
 
@@ -182,6 +183,9 @@ void _n64_send_poll()
 
 #define PAK_MSG_BYTES 33 /**< Pak write payload length: 1 trailing index byte after 32 data bytes. */
 
+#define N64_GAMEID_PAYLOAD_BYTES 10                            /**< Game ID payload: CRC1[4], CRC2[4], media format, country code. */
+#define N64_CMD_GAMEID_BYTES (N64_GAMEID_PAYLOAD_BYTES - 1)    /**< Last payload index, matching the PAK_MSG_BYTES convention. */
+
 // Constants for default cycles and clock speeds
 // 1 cycle is about 0.05us delay time
 
@@ -273,6 +277,35 @@ void __time_critical_func(_n64_command_handler)()
     else
       _byteCount++;
   }
+  else if (_workingCmd == N64_CMD_GAMEID)
+  {
+    // Must drain every byte the PIO pushes. The RX FIFO is only 4 deep and
+    // autopush stalls the state machine on a full FIFO, so skipping the read
+    // wedges the bus partway through this command.
+    _n64_hal_in_buffer[_byteCount] = pio_sm_get(PIO_IN_USE_N64, PIO_SM);
+
+    if (_byteCount >= N64_CMD_GAMEID_BYTES)
+    {
+      _workingCmd = 0;
+      _byteCount = 0;
+
+      // N64Digital is a passive sniffer and expects no reply, but we answer
+      // anyway: the receive loop has no stop-bit framing, so jumping to the
+      // output routine is the only thing that resynchronizes the bit counter
+      // after the console's stop bit. Consuming silently leaves the SM a bit
+      // out of phase and every following command decodes as garbage.
+      joybus_jump_output(PIO_IN_USE_N64, PIO_SM, _n64_offset);
+
+      // End receive so we respond
+      c = _delay_cycles_memread;
+      while (c--)
+        asm("nop");
+
+      _n64_send_probe();
+    }
+    else
+      _byteCount++;
+  }
   // Single byte commands and setup
   // for future handling
   else
@@ -293,6 +326,12 @@ void __time_critical_func(_n64_command_handler)()
     case N64_CMD_WRITEMEM:
       _crc_reply = 0;
       break;
+
+    // N64Digital game ID: 10 payload bytes follow, drained by the branch above.
+    case N64_CMD_GAMEID:
+      _byteCount = 0;
+      break;
+
 
     // Probe/Reset target response time 3us
     case N64_CMD_RESET:
@@ -339,10 +378,19 @@ static void __time_critical_func(_n64_isr_handler)(void)
 
 /**
  * @brief Re-initialize the Joybus PIO program back to its receive-ready state.
+ *
+ * Also clears the in-progress command parser state, which must not outlive the
+ * FIFOs the re-init flushes.
  */
 void _n64_reset_state()
 {
   joybus_program_init(PIO_IN_USE_N64, PIO_SM, _n64_offset, JOYBUS_N64_DRIVER_DATA_PIN, &_n64_c);
+
+  // Re-init clears the FIFOs, so the partially-parsed command we were tracking
+  // has to go with them or every following byte is read as command payload.
+  _workingCmd = 0;
+  _byteCount = 0;
+  _crc_reply = 0;
 }
 
 /**
