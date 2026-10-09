@@ -29,6 +29,7 @@
 #include "utilities/rgb.h"
 #include "utilities/hflash.h"
 #include "utilities/dongle_pin.h"
+#include "utilities/host_detect.h"
 
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
@@ -86,13 +87,14 @@ int main(void)
 
     stdio_init_all();
 
-    /* The HOJA board presents its wired N64 transport before a gamepad pairs.
-     * Official Pico W boards are USB-only and remain transport-idle until a
-     * WAKE packet selects the paired gamepad's USB personality. Starting a
-     * placeholder USB device here can interfere with WLAN startup/restarts. */
+    /* The HOJA board listens as an N64 first, the console half of host detection.
+     * Official Pico W boards are USB-only; their placeholder USB device waits for
+     * the radio (starting both at once can interfere with WLAN start-up). */
 #if !defined(HOJA_USB_ONLY)
     core_init(core_boot_wake());
 #endif
+    /* Console first, then USB: gamepads that follow us hear no beacon until this is done */
+    host_detect_start();
 
     /* Core 1 owns the radio + the dongle host wlan task. */
     multicore_launch_core1(dongle_network_core1_entry);
@@ -106,6 +108,8 @@ int main(void)
         uint64_t now_us = time_us_64();
 
         dongle_rgb_task(now_us);
+
+        host_detect_task(now_us);
 
         /* Defer flash writes until CYW43 AP bring-up finishes on core 1. */
         if (dongle_network_ap_is_ready())

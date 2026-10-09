@@ -105,6 +105,11 @@ volatile static bool _n64_drop_frame = false; /**< Discard bytes until the curre
 
 volatile bool _n64_got_data = false;  /**< Set by the ISR whenever a command was handled (connection/watchdog). */
 volatile bool _n64_sent_data = false; /**< Set after a poll reply so the task can pace the wireless link pump. */
+
+/* Commands seen since power-up, for host detection: an N64 polls, a GameCube only probes an N64
+ * controller and never polls it. */
+static volatile uint32_t _n64_probe_count = 0;
+static volatile uint32_t _n64_poll_count = 0;
 bool _n64_running = false;
 
 /**
@@ -330,6 +335,7 @@ void __time_critical_func(_n64_command_handler)()
     // Probe/Reset target response time 3us
     case N64_CMD_RESET:
     case N64_CMD_PROBE:
+      _n64_probe_count++;
       c = _delay_cycles_probe;
       while (c--)
         asm("nop");
@@ -340,6 +346,7 @@ void __time_critical_func(_n64_command_handler)()
 
     // Poll
     case N64_CMD_POLL:
+      _n64_poll_count++;
       c = _delay_cycles_poll;
       while (c--)
         asm("nop");
@@ -506,6 +513,12 @@ void _jb64_handle_connection(bool connected)
  * Re-inits the PIO, seeds a neutral input snapshot so the first poll reply is
  * centered, signals disconnect, and resets wireless link pump timing.
  */
+void joybus_n64_hal_get_counts(uint32_t *probes, uint32_t *polls)
+{
+  if (probes) *probes = _n64_probe_count;
+  if (polls) *polls = _n64_poll_count;
+}
+
 static void _jb64_reset()
 {
   // Disable PIO IRQ to prevent races during re-init

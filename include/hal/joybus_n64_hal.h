@@ -55,4 +55,9 @@ bool joybus_n64_hal_init();
  */
 void joybus_n64_hal_task(uint64_t timestamp);
 
+/**
+ * @brief Probe and poll commands answered since power-up (for host detection).
+ */
+void joybus_n64_hal_get_counts(uint32_t *probes, uint32_t *polls);
+
 #endif

@@ -21,6 +21,7 @@
 #include "transport/transport_usb.h"
 
 #include "cores/cores.h"
+#include "utilities/host_detect.h"
 
 #include <dongle_host.h>
 
@@ -216,6 +217,17 @@ void transport_usb_task(uint64_t timestamp)
             }
         }
     }
+}
+
+/* Placeholder enumeration while detecting the host: a computer asks for the BOS descriptor */
+void hhl_tusb_event_device_requested(void)
+{
+    host_detect_on_usb_device();
+}
+
+void hhl_tusb_event_bos_requested(void)
+{
+    host_detect_on_usb_bos();
 }
 
 void tud_umount_cb(void)
