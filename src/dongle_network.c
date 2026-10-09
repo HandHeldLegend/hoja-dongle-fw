@@ -43,6 +43,19 @@
 #include "lwip/ip4_addr.h"
 #include "lwip/udp.h"
 
+/* Which board this build is for, told to gamepads in the beacon */
+#if !defined(HOJA_USB_ONLY)
+#define DONGLE_BOARD_ID DONGLE_BOARD_HOJA
+#elif PICO_RP2350
+#define DONGLE_BOARD_ID DONGLE_BOARD_PICO2_W
+#else
+#define DONGLE_BOARD_ID DONGLE_BOARD_PICO_W
+#endif
+
+#if !defined(DONGLE_FW_VERSION)
+#define DONGLE_FW_VERSION 0u
+#endif
+
 /* The UDP socket the protocol rides on (created during AP bring-up, core 1). */
 static struct udp_pcb *_pcb = NULL;
 
@@ -68,7 +81,10 @@ static void _udp_rx_cb(void *arg, struct udp_pcb *udp, struct pbuf *p,
     dongle_pkt_s pkt;
     pbuf_copy_partial(p, &pkt, sizeof(dongle_pkt_s), 0);
 
-    dongle_api_host_wlan_udp_rx(&pkt);
+    const ip4_addr_t *src = ip_2_ip4(addr);
+    uint8_t ip[4] = {ip4_addr1(src), ip4_addr2(src), ip4_addr3(src), ip4_addr4(src)};
+
+    dongle_api_host_wlan_udp_rx(&pkt, ip);
 
     pbuf_free(p);
 }
@@ -143,7 +159,10 @@ void dongle_api_host_wlan_hook_udp_tx(const dongle_pkt_s *pkt, uint8_t ip[4], ui
 
 void dongle_network_core1_entry(void)
 {
-    dongle_cfg_host_s cfg = {0};
+    dongle_cfg_host_s cfg = {
+        .board = DONGLE_BOARD_ID,
+        .fw_version = DONGLE_FW_VERSION,
+    };
     dongle_pin_get(cfg.pin);
 
     dongle_api_host_wlan_init(&cfg);

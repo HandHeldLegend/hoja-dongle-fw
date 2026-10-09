@@ -41,9 +41,14 @@ static bool _pin_digits_valid(const uint8_t pin[4])
     return true;
 }
 
+/* Never 0000: a gamepad with that PIN has no dongle paired */
 static void _pin_generate(uint8_t pin[4])
 {
-    uint16_t key = dongle_api_hook_get_rand_u16() % 10000u;
+    uint16_t key;
+    do
+    {
+        key = dongle_api_hook_get_rand_u16() % 10000u;
+    } while (key == DONGLE_PIN_NONE);
     dongle_wlan_pin_from_u16(key, pin);
 }
 
