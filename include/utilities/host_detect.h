@@ -19,7 +19,8 @@
  * @brief Start detecting the host after power-up.
  *
  * The HOJA board's console and USB share one port, so it listens as an N64 first (already
- * started at boot) and moves to USB if no console polls it. USB-only boards start with USB.
+ * started at boot), watching the NES/SNES latch line too, and moves to USB if no console
+ * reads it. USB-only boards start with USB.
  * The result goes into the beacon through dongle_api_host_transport_set_detected().
  */
 void host_detect_start(void);

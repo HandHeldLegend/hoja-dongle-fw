@@ -33,6 +33,7 @@
 #include "cores/core_slippi.h"
 #include "cores/core_n64.h"
 #include "cores/core_gamecube.h"
+#include "cores/core_snes.h"
 #include "cores/core_xinput.h"
 #include "cores/core_switch.h"
 
@@ -116,14 +117,16 @@ bool core_init(const dongle_wake_s *wake)
 
     case DONGLE_MODE_GAMECUBE:
         return core_gamecube_init(&_core_params, wake);
+
+    case DONGLE_MODE_SNES:
+        return core_snes_init(&_core_params, wake);
 #endif
 
     case DONGLE_MODE_SLIPPI:
         return core_slippi_init(&_core_params, wake);
 
-    case DONGLE_MODE_SNES:
     default:
-        /* SNES is not implemented; unknown modes fail rather than guess. */
+        /* Unknown modes (or console modes on USB-only boards) fail rather than guess. */
         return false;
     }
 }

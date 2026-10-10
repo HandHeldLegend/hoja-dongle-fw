@@ -27,6 +27,7 @@
 #include "transport/transport_usb.h"
 #include "transport/transport_joybus64.h"
 #include "transport/transport_joybusgc.h"
+#include "transport/transport_nesbus.h"
 
 /** Teardown callback for the active backend (NULL when none / no teardown needed). */
 typedef void (*transport_stop_cb_t)(void);
@@ -82,7 +83,7 @@ bool transport_init(core_params_s *params)
         case GAMEPAD_TRANSPORT_NESBUS:
         if(transport_nesbus_init(params))
         {
-            _tp_stop_cb = NULL;
+            _tp_stop_cb = transport_nesbus_stop;
             params->core_transport_task = transport_nesbus_task;
             return true;
         }
