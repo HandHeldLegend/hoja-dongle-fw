@@ -34,6 +34,7 @@
 #include "dhcpserver.h"
 #include "utilities/dongle_pin.h"
 #include "utilities/hflash.h"
+#include "utilities/dongle_info.h"
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
@@ -42,19 +43,6 @@
 #include "lwip/err.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/udp.h"
-
-/* Which board this build is for, told to gamepads in the beacon */
-#if !defined(HOJA_USB_ONLY)
-#define DONGLE_BOARD_ID DONGLE_BOARD_HOJA
-#elif PICO_RP2350
-#define DONGLE_BOARD_ID DONGLE_BOARD_PICO2_W
-#else
-#define DONGLE_BOARD_ID DONGLE_BOARD_PICO_W
-#endif
-
-#if !defined(DONGLE_FW_VERSION)
-#define DONGLE_FW_VERSION 0u
-#endif
 
 /* The UDP socket the protocol rides on (created during AP bring-up, core 1). */
 static struct udp_pcb *_pcb = NULL;

@@ -58,6 +58,9 @@ static volatile bool _usb_bos = false;
 
 static dongle_wake_s _detect_wake;
 
+static dongle_host_kind_t _kind = DONGLE_HOST_UNKNOWN;
+static dongle_mode_t _mode = DONGLE_MODE_UNKNOWN;
+
 static const dongle_wake_s *_wake_for(dongle_mode_t mode, const char *name)
 {
     dongle_session_s session = {.mode = mode, .id = 0};
@@ -75,6 +78,8 @@ static void _set_phase(host_detect_phase_t phase, uint64_t now_us)
 
 static void _done(dongle_host_kind_t kind, dongle_mode_t mode, uint64_t now_us)
 {
+    _kind = kind;
+    _mode = mode;
     dongle_api_host_transport_set_detected(kind, mode);
     _set_phase(HOST_DETECT_DONE, now_us);
 }
@@ -161,6 +166,12 @@ void host_detect_task(uint64_t now_us)
         }
         break;
     }
+}
+
+void host_detect_get(dongle_host_kind_t *kind, dongle_mode_t *mode)
+{
+    if (kind) *kind = _kind;
+    if (mode) *mode = _mode;
 }
 
 void host_detect_on_usb_device(void)

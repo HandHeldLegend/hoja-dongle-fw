@@ -13,6 +13,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include <dongle.h>
+
 /**
  * @brief Start detecting the host after power-up.
  *
@@ -24,6 +26,9 @@ void host_detect_start(void);
 
 /** @brief Drive detection from the core 0 loop. */
 void host_detect_task(uint64_t now_us);
+
+/** @brief What was found: DONGLE_HOST_UNKNOWN until detection is done (or nothing was found). */
+void host_detect_get(dongle_host_kind_t *kind, dongle_mode_t *mode);
 
 /** @brief USB host requests seen by the placeholder device (from the USB callbacks). */
 void host_detect_on_usb_device(void);

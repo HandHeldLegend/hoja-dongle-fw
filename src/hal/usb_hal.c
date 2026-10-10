@@ -22,6 +22,7 @@
 
 #include "cores/cores.h"
 #include "utilities/host_detect.h"
+#include "utilities/dongle_webusb.h"
 
 #include <dongle_host.h>
 
@@ -140,6 +141,7 @@ bool transport_usb_init(core_params_s *params)
     tcfg.hooks.hid_output_report = _usb_hal_hid_output_report;
     tcfg.hooks.on_mount = _usb_hal_on_mount;
     tcfg.hooks.on_sof = _usb_hal_on_sof;
+    tcfg.hooks.vendor_rx = dongle_webusb_rx;
 
     switch (_usb_core_params->core_report_format)
     {
@@ -198,6 +200,7 @@ void transport_usb_task(uint64_t timestamp)
     (void)timestamp;
 
     hhl_tusb_task();
+    dongle_webusb_task();
 
     if (!_usb_ready)
     {
