@@ -203,11 +203,10 @@ static void _on_disconnected(uint8_t reason)
 
 static void _on_input(uint8_t report_id, const uint8_t *data, uint8_t len, const floss_link_rx_info_t *info)
 {
-    (void)info;
     switch (report_id)
     {
     case DONGLE_LINK_IN_REPORT:
-        dongle_api_host_link_rx_report(data, len);
+        dongle_api_host_link_rx_report(data, len, info->seq);
         break;
     case DONGLE_LINK_IN_BULK:
         dongle_api_host_link_rx_bulk(data, len);
