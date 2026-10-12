@@ -53,12 +53,6 @@ uint32_t _usb_frames = 8;
 volatile bool _usb_ready = false;
 volatile bool _usb_sendit = false;
 
-/* Hosts that poll every frame (computers) also get, in the frames between sends, a report that
- * arrived too late for its send (a radio resend), instead of it being overwritten unsent. Only
- * new reports go out there, and at the sends themselves: a frame with nothing new sends nothing. */
-static bool _usb_every_frame = false;
-volatile bool _usb_catchup = false;
-
 static void _usb_hal_hid_output_report(const uint8_t *buffer, uint16_t len)
 {
     if (_usb_core_params != NULL && _usb_core_params->core_output_report_tunnel != NULL)
@@ -81,17 +75,11 @@ static void _usb_hal_on_sof(uint32_t frame_count)
     if (ms_counter >= _usb_frames)
     {
         ms_counter = 0;
-        _usb_catchup = _usb_every_frame;
     }
     else if (ms_counter >= _usb_frames - 1)
     {
         dongle_api_host_transport_mark_sent();
         _usb_sendit = true;
-        _usb_catchup = false;
-    }
-    else
-    {
-        _usb_catchup = _usb_every_frame;
     }
 }
 
@@ -132,7 +120,6 @@ bool transport_usb_init(core_params_s *params)
 {
     _usb_core_params = params;
     ms_counter = 0;
-    _usb_catchup = false;
     memset(_core_report.data, 0, 64);
 
     if (_usb_core_params->hid_device)
@@ -192,9 +179,6 @@ bool transport_usb_init(core_params_s *params)
         return false;
     }
 
-    /* SInput, XInput and Slippi are polled every frame */
-    _usb_every_frame = (_usb_frames == 2);
-
     if (tcfg.driver == HHL_TUSB_DRIVER_HID)
     {
         tcfg.hid.device_descriptor = (const uint8_t *)_usbhal_hiddev->device_descriptor;
@@ -223,17 +207,9 @@ void transport_usb_task(uint64_t timestamp)
         _usb_ready = hhl_tusb_report_ready();
     }
 
-    if ((_usb_sendit || _usb_catchup) && _usb_ready)
+    if (_usb_sendit && _usb_ready)
     {
-        const bool catchup = !_usb_sendit;
         _usb_sendit = false;
-        _usb_catchup = false;
-
-        /* Only new reports between sends; on every-frame hosts, at the sends too */
-        if ((catchup || _usb_every_frame) && !dongle_api_host_transport_input_new())
-        {
-            return;
-        }
         _usb_ready = false;
 
         if (core_get_generated_report(&_core_report))
