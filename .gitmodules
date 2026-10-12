@@ -10,3 +10,6 @@
 [submodule "external/HHL-TINYUSB-DRIVERS"]
 	path = external/HHL-TINYUSB-DRIVERS
 	url = https://github.com/HandHeldLegend/HHL-TINYUSB-DRIVERS
+[submodule "external/floss"]
+	path = external/floss
+	url = https://github.com/mitchellcairns/floss
