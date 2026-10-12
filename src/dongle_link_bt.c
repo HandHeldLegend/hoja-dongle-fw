@@ -202,9 +202,25 @@ static void _on_disconnected(uint8_t reason)
 }
 
 #if DONGLE_LINK_DIAG
-/* Test builds: timing in a 64-byte report's last bytes, which SInput leaves unused (bytes 47-60):
+/* Test builds: the report pacing for computers steps through these, DIAG_INTERVAL_STEP_US each,
+ * to compare them under the same radio conditions; bytes 61-62 carry the one in force */
+static const uint16_t _diag_intervals[] = {1250, 1290, 1330, 1400};
+#define DIAG_INTERVAL_STEP_US 10000000u
+static uint16_t _diag_interval = 1250;
+
+static void _diag_interval_task(void)
+{
+    uint32_t i = (time_us_32() / DIAG_INTERVAL_STEP_US) % (sizeof(_diag_intervals) / sizeof(_diag_intervals[0]));
+    if (_diag_intervals[i] != _diag_interval)
+    {
+        _diag_interval = _diag_intervals[i];
+        dongle_api_host_link_set_pc_interval(_diag_interval);
+    }
+}
+
+/* Test builds: timing in a 64-byte report's last bytes, which SInput leaves unused (bytes 47-62):
  * the gamepad's sequence number and send time, our receive time; the USB send time follows
- * (core_sinput.c). Little endian. */
+ * (core_sinput.c), then the pacing asked for. Little endian. */
 static void _diag_rx_report(const uint8_t *data, uint8_t len, const floss_link_rx_info_t *info)
 {
     uint8_t p[DONGLE_LINK_REPORT_MAX];
@@ -216,6 +232,7 @@ static void _diag_rx_report(const uint8_t *data, uint8_t len, const floss_link_r
         memcpy(&p[1 + 47], &info->seq, 2);
         memcpy(&p[1 + 49], &info->t_pad_us, 4);
         memcpy(&p[1 + 53], &info->t_rx_us, 4);
+        memcpy(&p[1 + 61], &_diag_interval, 2);
     }
     p[0] = (uint8_t)n;
     dongle_api_host_link_rx_report(p, (uint16_t)(1u + n), info->seq, info->t_pad_us);
@@ -381,5 +398,8 @@ void dongle_network_core1_entry(void)
     {
         floss_poll();
         _link_service();
+#if DONGLE_LINK_DIAG
+        _diag_interval_task();
+#endif
     }
 }
