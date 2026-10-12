@@ -33,6 +33,10 @@
 #include "cores/cores.h"
 #include "transport/transport.h"
 
+#if DONGLE_LINK_DIAG
+#include "pico/time.h"
+#endif
+
 #define SINPUT_NAME "SInput Gamepad"
 #define SINPUT_MFG  "HHL"
 
@@ -82,6 +86,14 @@ static bool _core_sinput_get_generated_report(core_report_s *out)
 
     if (dongle_api_host_transport_get_inputreport(out->data, &out->size))
     {
+#if DONGLE_LINK_DIAG
+        /* Test builds: the USB send time after the link's timing (dongle_link_bt.c) */
+        if (out->size == 64)
+        {
+            uint32_t now = time_us_32();
+            memcpy(&out->data[57], &now, 4);
+        }
+#endif
         return true;
     }
 

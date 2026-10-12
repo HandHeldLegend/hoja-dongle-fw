@@ -130,7 +130,11 @@ else()
     target_compile_definitions(hoja-dongle-fw PRIVATE HOJA_USB_ONLY=1)
 endif()
 
+# Test builds: link timing in SInput reports' unused bytes (dongle_link_bt.c)
+option(HOJA_DONGLE_LINK_DIAG "Link timing diagnostics in SInput reports" OFF)
+
 if(HOJA_DONGLE_RADIO STREQUAL "bt")
+    target_compile_definitions(hoja-dongle-fw PRIVATE DONGLE_LINK_DIAG=$<BOOL:${HOJA_DONGLE_LINK_DIAG}>)
     target_compile_definitions(hoja-dongle-fw PRIVATE
         CYW43_ENABLE_BLUETOOTH=1   # load the combined WLAN + Bluetooth firmware
         CYW43_LWIP=0

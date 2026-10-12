@@ -201,12 +201,37 @@ static void _on_disconnected(uint8_t reason)
     _link_session_end();
 }
 
+#if DONGLE_LINK_DIAG
+/* Test builds: timing in a 64-byte report's last bytes, which SInput leaves unused (bytes 47-60):
+ * the gamepad's sequence number and send time, our receive time; the USB send time follows
+ * (core_sinput.c). Little endian. */
+static void _diag_rx_report(const uint8_t *data, uint8_t len, const floss_link_rx_info_t *info)
+{
+    uint8_t p[DONGLE_LINK_REPORT_MAX];
+    uint16_t n;
+    if (!dongle_link_untrim_report(data, len, &p[1], &n))
+        return;
+    if (n == 64)
+    {
+        memcpy(&p[1 + 47], &info->seq, 2);
+        memcpy(&p[1 + 49], &info->t_pad_us, 4);
+        memcpy(&p[1 + 53], &info->t_rx_us, 4);
+    }
+    p[0] = (uint8_t)n;
+    dongle_api_host_link_rx_report(p, (uint16_t)(1u + n), info->seq);
+}
+#endif
+
 static void _on_input(uint8_t report_id, const uint8_t *data, uint8_t len, const floss_link_rx_info_t *info)
 {
     switch (report_id)
     {
     case DONGLE_LINK_IN_REPORT:
+#if DONGLE_LINK_DIAG
+        _diag_rx_report(data, len, info);
+#else
         dongle_api_host_link_rx_report(data, len, info->seq);
+#endif
         break;
     case DONGLE_LINK_IN_BULK:
         dongle_api_host_link_rx_bulk(data, len);
