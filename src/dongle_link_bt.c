@@ -218,7 +218,7 @@ static void _diag_rx_report(const uint8_t *data, uint8_t len, const floss_link_r
         memcpy(&p[1 + 53], &info->t_rx_us, 4);
     }
     p[0] = (uint8_t)n;
-    dongle_api_host_link_rx_report(p, (uint16_t)(1u + n), info->seq);
+    dongle_api_host_link_rx_report(p, (uint16_t)(1u + n), info->seq, info->t_pad_us);
 }
 #endif
 
@@ -230,7 +230,7 @@ static void _on_input(uint8_t report_id, const uint8_t *data, uint8_t len, const
 #if DONGLE_LINK_DIAG
         _diag_rx_report(data, len, info);
 #else
-        dongle_api_host_link_rx_report(data, len, info->seq);
+        dongle_api_host_link_rx_report(data, len, info->seq, info->t_pad_us);
 #endif
         break;
     case DONGLE_LINK_IN_BULK:
