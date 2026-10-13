@@ -65,13 +65,16 @@ void dongle_api_host_transport_hook_transport_bringup(const dongle_wake_s *wake)
     core_init(wake);
 }
 
-/* The wireless link dropped (gamepad gone). Re-enumerating USB in place does
- * not reliably recover on the console host, so the most robust recovery is a
- * full reboot: it brings the transport back up clean and restores the default
- * boot session. */
+/* The wireless link dropped (gamepad gone). A computer takes the dongle's own
+ * device back in place. Re-enumerating USB in place does not reliably recover
+ * on a console host, so there a full reboot brings the transport back up clean
+ * and restores the default boot session. */
 void dongle_api_host_transport_hook_transport_teardown(void)
 {
-    watchdog_reboot(0, 0, 0);
+    if (!host_detect_link_lost())
+    {
+        watchdog_reboot(0, 0, 0);
+    }
 }
 
 /* -------------------------------------------------------------------------- */

@@ -31,6 +31,13 @@ void host_detect_task(uint64_t now_us);
 /** @brief What was found: DONGLE_HOST_UNKNOWN until detection is done (or nothing was found). */
 void host_detect_get(dongle_host_kind_t *kind, dongle_mode_t *mode);
 
+/** True once the host is known to be a computer. */
+bool host_detect_is_pc(void);
+
+/** The gamepad left. On a computer, go back to the dongle's own device and return true; false on
+ *  a console, which may not take a device re-enumerating. */
+bool host_detect_link_lost(void);
+
 /** @brief USB host requests seen by the placeholder device (from the USB callbacks). */
 void host_detect_on_usb_device(void);
 void host_detect_on_usb_bos(void);

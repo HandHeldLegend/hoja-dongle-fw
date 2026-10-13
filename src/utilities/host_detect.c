@@ -31,6 +31,8 @@
 #include "cores/cores.h"
 #include "dongle_network.h"
 
+#include "pico/time.h"
+
 #if !defined(HOJA_USB_ONLY)
 #include "hal/joybus_n64_hal.h"
 #include "hardware/gpio.h"
@@ -42,6 +44,8 @@
 #define HOST_DETECT_BOS_WAIT_MS 500
 // No USB host by then: a charger or power bank
 #define HOST_DETECT_USB_WAIT_MS 3000
+// The dongle's own device on USB, until a gamepad connects: SInput, with the config app's interface
+#define HOST_DETECT_DEVICE_NAME "HOJA Dongle"
 // An NES or SNES latches 60 times a second, so this is a fraction of the listening time
 #define HOST_DETECT_LATCH_MIN 10
 // How long latch low and clock high must hold to count as a powered NES or SNES
@@ -229,7 +233,7 @@ void host_detect_task(uint64_t now_us)
         {
             _usb_device = false;
             _usb_bos = false;
-            core_init(_wake_for(DONGLE_MODE_SINPUT, "HOJA Dongle"));
+            core_init(_wake_for(DONGLE_MODE_SINPUT, HOST_DETECT_DEVICE_NAME));
             _set_phase(HOST_DETECT_USB, now_us);
         }
         break;
@@ -256,6 +260,25 @@ void host_detect_get(dongle_host_kind_t *kind, dongle_mode_t *mode)
 {
     if (kind) *kind = _kind;
     if (mode) *mode = _mode;
+}
+
+bool host_detect_is_pc(void)
+{
+    return _phase == HOST_DETECT_DONE && _kind == DONGLE_HOST_PC;
+}
+
+bool host_detect_link_lost(void)
+{
+    if (!host_detect_is_pc())
+    {
+        return false;
+    }
+
+    // As at a gamepad's arrival: the host has to see the device leave before the new one comes
+    core_deinit();
+    sleep_ms(100);
+    core_init(_wake_for(DONGLE_MODE_SINPUT, HOST_DETECT_DEVICE_NAME));
+    return true;
 }
 
 void host_detect_on_usb_device(void)
