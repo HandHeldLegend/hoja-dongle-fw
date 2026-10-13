@@ -157,10 +157,13 @@ bool transport_usb_init(core_params_s *params)
         tcfg.webusb.enabled = true;
         break;
 
+    // The config app's interface beside XInput and Slippi on a computer only: a console gets the
+    // device it knows
     case CORE_REPORTFORMAT_XINPUT:
 #if (HHL_TUSB_DRIVER_XINPUT_ENABLE)
         _usb_frames = 2;
         tcfg.driver = HHL_TUSB_DRIVER_XINPUT;
+        tcfg.webusb.enabled = host_detect_is_pc();
         break;
 #else
         return false;
@@ -170,6 +173,7 @@ bool transport_usb_init(core_params_s *params)
 #if (HHL_TUSB_DRIVER_SLIPPI_ENABLE)
         _usb_frames = 2;
         tcfg.driver = HHL_TUSB_DRIVER_SLIPPI;
+        tcfg.webusb.enabled = host_detect_is_pc();
         break;
 #else
         return false;

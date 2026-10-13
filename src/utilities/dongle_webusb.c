@@ -102,6 +102,14 @@ void dongle_webusb_rx(const uint8_t *data, uint16_t len)
         reset_usb_boot(0, 0);
         break;
 
+    case DONGLE_WEBUSB_PC_MODE:
+        if (len >= 2)
+        {
+            host_detect_set_pc_mode((dongle_mode_t)data[1]);
+        }
+        _build_info();
+        break;
+
     default:
         // Only to a connected gamepad: queued commands (a settings write) must not reach one
         // that connects later

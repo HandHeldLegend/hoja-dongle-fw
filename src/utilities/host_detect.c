@@ -267,6 +267,29 @@ bool host_detect_is_pc(void)
     return _phase == HOST_DETECT_DONE && _kind == DONGLE_HOST_PC;
 }
 
+bool host_detect_set_pc_mode(dongle_mode_t mode)
+{
+    if (!host_detect_is_pc())
+    {
+        return false;
+    }
+
+    // Not XInput: Windows' Xbox 360 driver takes the whole device, config interface and all, so the
+    // config app couldn't change the mode back
+    switch (mode)
+    {
+    case DONGLE_MODE_SWITCH:
+    case DONGLE_MODE_SINPUT:
+    case DONGLE_MODE_SLIPPI:
+        _mode = mode;
+        dongle_api_host_transport_set_detected(_kind, _mode);
+        return true;
+
+    default:
+        return false;
+    }
+}
+
 bool host_detect_link_lost(void)
 {
     if (!host_detect_is_pc())

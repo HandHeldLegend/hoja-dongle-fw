@@ -34,6 +34,10 @@ void host_detect_get(dongle_host_kind_t *kind, dongle_mode_t *mode);
 /** True once the host is known to be a computer. */
 bool host_detect_is_pc(void);
 
+/** On a computer, present another mode (Switch, SInput or Slippi): a gamepad that follows the
+ *  dongle switches to it. False for any other mode, or on a console. */
+bool host_detect_set_pc_mode(dongle_mode_t mode);
+
 /** The gamepad left. On a computer, go back to the dongle's own device and return true; false on
  *  a console, which may not take a device re-enumerating. */
 bool host_detect_link_lost(void);
