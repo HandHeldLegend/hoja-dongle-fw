@@ -12,11 +12,11 @@
  * @brief Single application entry point built on the portable dongle host API.
  *
  * All dongle protocol/state-machine logic lives in the hoja_lib_dongle library,
- * split into a wlan task (radio, core 1) and a transport task (console, core 0).
+ * split into a radio task (the link, core 1) and a transport task (console, core 0).
  * This file is the only platform "glue" for the console side: it supplies the
  * generic util hooks (time / rand), the transport bring-up / teardown hooks that
  * map the gamepad's advertised personality onto a USB/Joybus core, and runs the
- * transport task + active core on core 0. The wlan side lives in dongle_network.c.
+ * transport task + active core on core 0. The radio side lives in dongle_link_bt.c.
  */
 
 #include <stdint.h>
@@ -24,11 +24,9 @@
 #include <dongle.h>
 #include <dongle_host.h>
 
-#include "dongle_network.h"
+#include "dongle_radio.h"
 #include "cores/cores.h"
 #include "utilities/rgb.h"
-#include "utilities/hflash.h"
-#include "utilities/dongle_pin.h"
 #include "utilities/host_detect.h"
 
 #include "pico/stdlib.h"
@@ -85,22 +83,19 @@ int main(void)
 {
     dongle_rgb_enter_bootloader_if_buttons_held();
 
-    hflash_init();
-    dongle_pin_init();
-
     stdio_init_all();
 
     /* The HOJA board listens as an N64 first, the console half of host detection.
      * Official Pico W boards are USB-only; their placeholder USB device waits for
-     * the radio (starting both at once can interfere with WLAN start-up). */
+     * the radio (starting both at once can upset the radio's start). */
 #if !defined(HOJA_USB_ONLY)
     core_init(core_boot_wake());
 #endif
-    /* Console first, then USB: gamepads that follow us hear no beacon until this is done */
+    /* Console first, then USB: gamepads that follow us hear no host info until this is done */
     host_detect_start();
 
-    /* Core 1 owns the radio + the dongle host wlan task. */
-    multicore_launch_core1(dongle_network_core1_entry);
+    /* Core 1 owns the radio and the link. */
+    multicore_launch_core1(dongle_radio_core1_entry);
 
     /* CYW43 may reconfigure GPIOs at init; reclaim button pins on core 0. */
     dongle_rgb_gpio_init();
@@ -113,12 +108,6 @@ int main(void)
         dongle_rgb_task(now_us);
 
         host_detect_task(now_us);
-
-        /* Defer flash writes until CYW43 AP bring-up finishes on core 1. */
-        if (dongle_network_ap_is_ready())
-        {
-            hflash_task();
-        }
 
         /* Drains WAKE control packets (session adopt + transport bring-up) and
          * reacts to link-down (transport teardown). */

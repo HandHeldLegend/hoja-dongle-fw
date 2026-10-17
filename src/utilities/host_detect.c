@@ -29,7 +29,7 @@
 #include <dongle_host.h>
 
 #include "cores/cores.h"
-#include "dongle_network.h"
+#include "dongle_radio.h"
 
 #include "pico/time.h"
 
@@ -55,7 +55,7 @@ typedef enum
 {
     HOST_DETECT_OFF,
     HOST_DETECT_CONSOLE, // Listening as an N64
-    HOST_DETECT_WAIT_AP, // USB waits for the radio: starting both at once upsets WLAN start-up
+    HOST_DETECT_WAIT_RADIO, // USB waits for the radio: starting both at once upsets its start
     HOST_DETECT_USB,     // Enumerated as the placeholder, watching the host's requests
     HOST_DETECT_DONE,
 } host_detect_phase_t;
@@ -157,7 +157,7 @@ void host_detect_start(void)
 #endif
     _set_phase(HOST_DETECT_CONSOLE, 0);
 #else
-    _set_phase(HOST_DETECT_WAIT_AP, 0);
+    _set_phase(HOST_DETECT_WAIT_RADIO, 0);
 #endif
 }
 
@@ -222,14 +222,14 @@ void host_detect_task(uint64_t now_us)
         else
         {
             core_deinit();
-            _set_phase(HOST_DETECT_WAIT_AP, now_us);
+            _set_phase(HOST_DETECT_WAIT_RADIO, now_us);
         }
         break;
     }
 #endif
 
-    case HOST_DETECT_WAIT_AP:
-        if (dongle_network_ap_is_ready())
+    case HOST_DETECT_WAIT_RADIO:
+        if (dongle_radio_ready())
         {
             _usb_device = false;
             _usb_bos = false;

@@ -13,7 +13,7 @@
  *
  * Unlike the USB cores, the N64 core speaks the console-side Joybus protocol
  * (GAMEPAD_TRANSPORT_JOYBUS64) rather than USB. Input reports are sourced from
- * the WLAN link; rumble and transport status are forwarded back to the gamepad
+ * the link; rumble and transport status are forwarded back to the gamepad
  * via the dongle STATUS channel.
  */
 
@@ -28,7 +28,7 @@
 #define CORE_N64_DEFAULT_NAME "N64 Controller"
 #define CORE_N64_DEFAULT_MFG  "Nintendo"
 
-static core_hid_device_t _n64_wlan_hid = {
+static core_hid_device_t _n64_dongle_hid = {
     .name = CORE_N64_DEFAULT_NAME,
     .manufacturer = CORE_N64_DEFAULT_MFG,
 };
@@ -36,7 +36,7 @@ static core_hid_device_t _n64_wlan_hid = {
 /* Cached last report so polls still return valid data when no fresh packet arrives. */
 static core_n64_report_s _last_report;
 
-/* Build the N64 input report from the freshest WLAN packet, else repeat the last one. */
+/* Build the N64 input report from the freshest report from the gamepad, else repeat the last one. */
 bool _core_n64_get_generated_report(core_report_s *out)
 {
     out->reportformat = CORE_REPORTFORMAT_N64;
@@ -71,8 +71,8 @@ bool core_n64_init(core_params_s *params, const dongle_wake_s *wake)
 {
     _n64_core_params = params;
 
-    core_hid_apply_wake_identity(wake, &_n64_wlan_hid, CORE_N64_DEFAULT_NAME, CORE_N64_DEFAULT_MFG);
-    params->hid_device = &_n64_wlan_hid;
+    core_hid_apply_wake_identity(wake, &_n64_dongle_hid, CORE_N64_DEFAULT_NAME, CORE_N64_DEFAULT_MFG);
+    params->hid_device = &_n64_dongle_hid;
 
     params->core_pollrate_us = 1000;
     params->core_report_format = CORE_REPORTFORMAT_N64;

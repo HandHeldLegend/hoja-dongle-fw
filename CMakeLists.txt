@@ -41,14 +41,6 @@ else()
         "Expected hoja, pico_w, or pico2_w.")
 endif()
 
-# The radio link to the gamepad: "bt" (FLOSS link profile, Bluetooth Classic) or "wlan"
-# (the WLAN access point and protocol).
-set(HOJA_DONGLE_RADIO "bt" CACHE STRING "Radio link to the gamepad: bt or wlan")
-set_property(CACHE HOJA_DONGLE_RADIO PROPERTY STRINGS bt wlan)
-if(NOT HOJA_DONGLE_RADIO STREQUAL "bt" AND NOT HOJA_DONGLE_RADIO STREQUAL "wlan")
-    message(FATAL_ERROR "Unknown HOJA_DONGLE_RADIO='${HOJA_DONGLE_RADIO}'. Expected bt or wlan.")
-endif()
-
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
@@ -74,32 +66,27 @@ if(HOJA_USB_ONLY)
     list(APPEND UTILS_C "${CMAKE_CURRENT_LIST_DIR}/src/utilities/rgb_stub.c")
 endif()
 
-if(HOJA_DONGLE_RADIO STREQUAL "bt")
-    # FLOSS on the CYW43 without pico_cyw43_arch: bare driver glue, no async context and
-    # no interrupts; the radio runs inside floss_poll() on core 1.
-    include(${CMAKE_CURRENT_LIST_DIR}/external/floss/cmake/floss.cmake)
-    target_compile_definitions(floss PUBLIC FLOSS_USER_CONFIG_FILE="floss_config_dongle.h")
-    target_include_directories(floss PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
-    set_target_properties(floss_h4 floss_sim PROPERTIES EXCLUDE_FROM_ALL ON)
+# The radio: the Bluetooth link to the gamepad. FLOSS on the CYW43 without pico_cyw43_arch: bare
+# driver glue, no async context and no interrupts; the radio runs inside floss_poll() on core 1.
+include(${CMAKE_CURRENT_LIST_DIR}/external/floss/cmake/floss.cmake)
+target_compile_definitions(floss PUBLIC FLOSS_USER_CONFIG_FILE="floss_config_dongle.h")
+target_include_directories(floss PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
+set_target_properties(floss_h4 floss_sim PROPERTIES EXCLUDE_FROM_ALL ON)
 
-    set(RADIO_C
-        src/dongle_link_bt.c
-        ${FLOSS_ROOT}/transport/cyw43/floss_cyw43.c
-        ${FLOSS_ROOT}/transport/cyw43/floss_cyw43_bare.c
-        )
-    set(RADIO_LIBS floss pico_cyw43_driver_headers cyw43_driver_picow pico_unique_id pico_rand)
-else()
-    set(RADIO_C src/dongle_network.c src/dhcpserver.c)
-    set(RADIO_LIBS pico_cyw43_arch_lwip_threadsafe_background)
-endif()
+set(RADIO_C
+    src/dongle_link_bt.c
+    ${FLOSS_ROOT}/transport/cyw43/floss_cyw43.c
+    ${FLOSS_ROOT}/transport/cyw43/floss_cyw43_bare.c
+    )
+set(RADIO_LIBS floss pico_cyw43_driver_headers cyw43_driver_picow pico_unique_id pico_rand)
 
-add_executable(hoja-dongle-fw 
-    src/main.c 
-    ${RADIO_C} 
-    ${HAL_C} 
-    ${CORES_C} 
-    ${TRANSPORTS_C} 
-    ${UTILS_C} 
+add_executable(hoja-dongle-fw
+    src/main.c
+    ${RADIO_C}
+    ${HAL_C}
+    ${CORES_C}
+    ${TRANSPORTS_C}
+    ${UTILS_C}
     )
 
 pico_set_program_name(hoja-dongle-fw "hoja-dongle-fw")
@@ -133,24 +120,22 @@ endif()
 # Test builds: link timing in SInput reports' unused bytes (dongle_link_bt.c)
 option(HOJA_DONGLE_LINK_DIAG "Link timing diagnostics in SInput reports" OFF)
 
-if(HOJA_DONGLE_RADIO STREQUAL "bt")
-    target_compile_definitions(hoja-dongle-fw PRIVATE DONGLE_LINK_DIAG=$<BOOL:${HOJA_DONGLE_LINK_DIAG}>)
-    target_compile_definitions(hoja-dongle-fw PRIVATE
-        CYW43_ENABLE_BLUETOOTH=1   # load the combined WLAN + Bluetooth firmware
-        CYW43_LWIP=0
-        FLOSS_CYW43_BARE=1
-        )
-    target_include_directories(hoja-dongle-fw PRIVATE
-        ${FLOSS_ROOT}/src
-        ${FLOSS_ROOT}/transport/cyw43
-        )
-endif()
+target_compile_definitions(hoja-dongle-fw PRIVATE DONGLE_LINK_DIAG=$<BOOL:${HOJA_DONGLE_LINK_DIAG}>)
+target_compile_definitions(hoja-dongle-fw PRIVATE
+    CYW43_ENABLE_BLUETOOTH=1   # the CYW43 runs its combined WLAN + Bluetooth firmware
+    CYW43_LWIP=0
+    FLOSS_CYW43_BARE=1
+    )
+target_include_directories(hoja-dongle-fw PRIVATE
+    ${FLOSS_ROOT}/src
+    ${FLOSS_ROOT}/transport/cyw43
+    )
 
 # Add the standard library to the build
 target_link_libraries(hoja-dongle-fw
         ${RADIO_LIBS}
         pico_stdlib
-        pico_multicore 
+        pico_multicore
         hardware_watchdog
         tinyusb_device
         tinyusb_board

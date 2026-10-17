@@ -32,8 +32,7 @@
 #include <dongle_host.h>
 #include <dongle_link.h>
 
-#include "dongle_network.h"
-#include "utilities/hflash.h"
+#include "dongle_radio.h"
 #include "utilities/dongle_info.h"
 
 #include "pico/stdlib.h"
@@ -357,12 +356,12 @@ static void _link_service(void)
 /* Core 1 entry                                                               */
 /* -------------------------------------------------------------------------- */
 
-bool dongle_network_ap_is_ready(void)
+bool dongle_radio_ready(void)
 {
     return _radio_ready;
 }
 
-void dongle_network_core1_entry(void)
+void dongle_radio_core1_entry(void)
 {
     dongle_cfg_host_s cfg = {
         .board = DONGLE_BOARD_ID,
@@ -389,10 +388,6 @@ void dongle_network_core1_entry(void)
     floss_cyw43_default_addr(&addr);
     floss_hci_set_addr_override(&addr);
     floss_start();
-
-    /* Flash lockout needs this core to answer: set it up once the radio code runs here */
-    hflash_init();
-    hflash_task();
 
     for (;;)
     {

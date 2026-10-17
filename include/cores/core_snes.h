@@ -25,7 +25,7 @@
 #include <dongle.h>
 
 /**
- * @brief SNES button state as the gamepad sends it over WLAN.
+ * @brief SNES button state as the gamepad sends it over the link.
  *
  * Active low like the console expects (0 = pressed), the same layout as the
  * gamepad's SNES core.
@@ -59,7 +59,7 @@ typedef struct
 /**
  * @brief Initialize the SNES core into @p params and start its NESBus transport.
  * @param params Core parameter block to populate.
- * @param wake   WAKE packet supplying WLAN identity strings (optional).
+ * @param wake   WAKE packet supplying the gamepad's identity strings (optional).
  * @return true if the NESBus transport initialized successfully; false otherwise.
  */
 bool core_snes_init(core_params_s *params, const dongle_wake_s *wake);

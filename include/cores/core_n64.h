@@ -73,7 +73,7 @@ typedef struct
 /**
  * @brief Initialize the N64 core into @p params and start its joybus transport.
  * @param params Core parameter block to populate.
- * @param wake   WAKE packet supplying WLAN identity strings (optional).
+ * @param wake   WAKE packet supplying the gamepad's identity strings (optional).
  * @return true if the joybus transport initialized successfully; false otherwise.
  */
 bool core_n64_init(core_params_s *params, const dongle_wake_s *wake);

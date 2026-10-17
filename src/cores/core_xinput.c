@@ -69,7 +69,7 @@ static bool _xinput_get_generated_report(core_report_s *out)
     return true;
 }
 
-/** @brief Relay host OUT reports (rumble / player LED) to the gamepad over WLAN. */
+/** @brief Relay host OUT reports (rumble / player LED) to the gamepad over the link. */
 static void _xinput_output_tunnel(const uint8_t *data, uint16_t len)
 {
     dongle_api_host_transport_set_outputreport(data, len);

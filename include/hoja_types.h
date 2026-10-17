@@ -49,7 +49,7 @@ typedef struct
         uint32_t color;
     };
 } rgb_s;
-#else 
+#else
 typedef struct
 {
     union
@@ -67,7 +67,7 @@ typedef struct
 #endif
 
 /** @brief Connection lifecycle / assigned-player state (negative values are transient states). */
-typedef enum 
+typedef enum
 {
     CONN_STATUS_SHUTDOWN = -3,
     CONN_STATUS_INIT = -2,
@@ -83,10 +83,10 @@ typedef enum
     CONN_STATUS_PLAYER_8    = 8,
 } connection_status_t;
 
-typedef enum 
+typedef enum
 {
     PLAYER_NUMBER_INIT = -1,
-    
+
 } player_number_t;
 
 /** @brief Gamepad personality / emulated controller mode. */
@@ -111,11 +111,10 @@ typedef enum
     GAMEPAD_METHOD_WIRED = 0,       // Used for modes that should retain power even when unplugged
     GAMEPAD_METHOD_USB   = 1,       // Use for USB modes where we should power off when unplugged
     GAMEPAD_METHOD_BLUETOOTH = 2,   // Wireless Bluetooth modes
-    GAMEPAD_METHOD_WLAN = 3,        // Wireless WLAN modes (dongle)
 } gamepad_method_t;
 
 /** @brief Physical/logical transport carrying gamepad data. */
-typedef enum 
+typedef enum
 {
     GAMEPAD_TRANSPORT_UNDEFINED = -1,
     GAMEPAD_TRANSPORT_NESBUS,
@@ -123,11 +122,10 @@ typedef enum
     GAMEPAD_TRANSPORT_JOYBUSGC,
     GAMEPAD_TRANSPORT_USB,
     GAMEPAD_TRANSPORT_BLUETOOTH,
-    GAMEPAD_TRANSPORT_WLAN,
 } gamepad_transport_t;
 
 /** @brief Aggregate runtime gamepad status (mode, method, colors, notifications). */
-typedef struct 
+typedef struct
 {
     int8_t connection_status;
     gamepad_mode_t gamepad_mode;
@@ -150,7 +148,7 @@ typedef union
         uint16_t    hi_frequency_increment;
         uint16_t    lo_frequency_increment;
     };
-    uint64_t value; 
+    uint64_t value;
 } haptic_processed_s;
 
 /** @brief A batch of processed haptic bands with a monotonic sequence counter. */
@@ -158,7 +156,7 @@ typedef struct
 {
     haptic_processed_s pairs[3];
     uint8_t count;
-    uint64_t counter; 
+    uint64_t counter;
 } haptic_packet_s;
 
 #endif

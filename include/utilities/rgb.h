@@ -55,7 +55,7 @@
 #define HOJA_RGB_LED_SWAP 0
 #endif
 
-/** BTN1 (GPIO20): mode LED. BTN2 (GPIO29): WLAN / connection LED. */
+/** BTN1 (GPIO20): mode LED. BTN2 (GPIO29): connection LED. */
 #define DONGLE_RGB_LED_MODE 0u
 #define DONGLE_RGB_LED_CONN 1u
 

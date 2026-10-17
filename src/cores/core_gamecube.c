@@ -12,7 +12,7 @@
  * @brief Nintendo GameCube controller personality over the Joybus transport.
  *
  * Speaks the console-side GameCube Joybus protocol (GAMEPAD_TRANSPORT_JOYBUSGC)
- * directly rather than USB. Input reports are sourced from the WLAN link;
+ * directly rather than USB. Input reports come from the gamepad over the link;
  * rumble and transport status are forwarded back to the gamepad via STATUS.
  */
 
@@ -26,7 +26,7 @@
 #define CORE_GC_DEFAULT_NAME "GameCube Controller"
 #define CORE_GC_DEFAULT_MFG  "Nintendo"
 
-static core_hid_device_t _gamecube_wlan_hid = {
+static core_hid_device_t _gamecube_dongle_hid = {
     .name = CORE_GC_DEFAULT_NAME,
     .manufacturer = CORE_GC_DEFAULT_MFG,
 };
@@ -34,7 +34,7 @@ static core_hid_device_t _gamecube_wlan_hid = {
 /* Cached last report so polls still return valid data when no fresh packet arrives. */
 static core_gamecube_report_s _last_report;
 
-/* Build the GameCube input report from the freshest WLAN packet, else repeat last one. */
+/* Build the GameCube input report from the freshest report from the gamepad, else repeat last one. */
 bool _core_gamecube_get_generated_report(core_report_s *out)
 {
     out->reportformat = CORE_REPORTFORMAT_GAMECUBE;
@@ -69,8 +69,8 @@ bool core_gamecube_init(core_params_s *params, const dongle_wake_s *wake)
 {
     _gamecube_core_params = params;
 
-    core_hid_apply_wake_identity(wake, &_gamecube_wlan_hid, CORE_GC_DEFAULT_NAME, CORE_GC_DEFAULT_MFG);
-    params->hid_device = &_gamecube_wlan_hid;
+    core_hid_apply_wake_identity(wake, &_gamecube_dongle_hid, CORE_GC_DEFAULT_NAME, CORE_GC_DEFAULT_MFG);
+    params->hid_device = &_gamecube_dongle_hid;
 
     params->core_pollrate_us = 1000;
     params->core_report_format = CORE_REPORTFORMAT_GAMECUBE;

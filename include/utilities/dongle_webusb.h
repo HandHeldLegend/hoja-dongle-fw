@@ -22,7 +22,7 @@
  *   [2]  board (dongle_board_t)
  *   [3]  1 while a gamepad is connected
  *   [4]  dongle firmware version, u32 little endian
- *   [8]  PIN, u16 little endian (0-9999)
+ *   [8]  0, u16 (was the WLAN PIN)
  *   [10] host kind (dongle_host_kind_t)
  *   [11] host mode (dongle_mode_t)
  *   [12] gamepad mode (dongle_mode_t), 0xFF without a gamepad

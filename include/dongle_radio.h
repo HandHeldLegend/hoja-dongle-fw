@@ -1,5 +1,5 @@
 /*
- * WLAN platform adapter entry point (Pico W / CYW43 + lwIP).
+ * The dongle's radio: the Bluetooth link to the gamepad, on core 1.
  *
  * Copyright (c) 2026 Hand Held Legend, LLC
  * Author: Mitchell Cairns
@@ -7,17 +7,8 @@
  * SPDX-License-Identifier: MIT-0
  */
 
-/**
- * @file dongle_network.h
- * @brief Core-1 WLAN task entry for the RP2350 (Pico 2 W) platform.
- *
- * The portable dongle host protocol lives in the hoja_lib_dongle library; this
- * adapter supplies the platform-specific Wi-Fi AP / UDP plumbing through the
- * dongle_api_host_wlan_hook_* callbacks and runs the library wlan task on core 1.
- */
-
-#ifndef DONGLE_NETWORK_H
-#define DONGLE_NETWORK_H
+#ifndef DONGLE_RADIO_H
+#define DONGLE_RADIO_H
 
 #include <stdbool.h>
 
@@ -25,20 +16,14 @@
 extern "C" {
 #endif
 
-/**
- * @brief Core 1 entry point: bring up the radio and run the wlan task forever.
- *
- * Launch with multicore_launch_core1(). It initializes the dongle host wlan
- * side (which brings the access point up via the platform hook) and then loops
- * dongle_api_host_wlan_task().
- */
-void dongle_network_core1_entry(void);
+/** Core 1 entry point: bring the radio up and run the link forever (dongle_link_bt.c). */
+void dongle_radio_core1_entry(void);
 
-/** @return true once the CYW43 AP has been brought up successfully. */
-bool dongle_network_ap_is_ready(void);
+/** True once the radio is up (USB waits for it: starting both at once upsets the radio's start). */
+bool dongle_radio_ready(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* DONGLE_NETWORK_H */
+#endif /* DONGLE_RADIO_H */

@@ -20,7 +20,6 @@
  */
 
 #include "utilities/rgb.h"
-#include "utilities/dongle_pin.h"
 
 #include "hal/rgb_hal.h"
 
@@ -87,11 +86,8 @@ typedef struct
 } dongle_rgb_btn_t;
 
 static dongle_rgb_btn_t _btn1; /* BTN1 (GPIO20): mode LED */
-static dongle_rgb_btn_t _btn2; /* BTN2 (GPIO29): WLAN / connection LED */
+static dongle_rgb_btn_t _btn2; /* BTN2 (GPIO29): connection LED */
 
-static bool _pin_reset_pending;
-static bool _pin_reset_hold_fired;
-static uint64_t _both_press_start_us;
 
 /** @brief Scale a single 0–255 channel value by the global brightness. */
 static uint8_t _scale_channel(uint8_t v)
@@ -298,54 +294,16 @@ static void _button_task(dongle_rgb_btn_t *btn, uint64_t now_us)
     }
 }
 
-/**
- * @brief Both-button hold: after HOJA_BTN_PIN_RESET_HOLD_US queue a new PIN;
- * reboot only once both buttons are released so boot does not enter UF2.
- */
-static void _both_buttons_pin_reset_task(uint64_t now_us)
-{
-    if (_both_buttons_pressed())
-    {
-        if (_both_press_start_us == 0u)
-        {
-            _both_press_start_us = now_us;
-        }
-        else if (!_pin_reset_hold_fired &&
-                 (now_us - _both_press_start_us) >= HOJA_BTN_PIN_RESET_HOLD_US)
-        {
-            _pin_reset_hold_fired = true;
-            dongle_pin_regenerate_and_save();
-            _pin_reset_pending = true;
-        }
-        return;
-    }
-
-    if (_pin_reset_pending &&
-        !BTN_IS_PRESSED(HOJA_BTN1_PIN) && !BTN_IS_PRESSED(HOJA_BTN2_PIN))
-    {
-        dongle_pin_flush_save();
-        watchdog_reboot(0, 0, 0);
-    }
-
-    if (!_both_buttons_pressed())
-    {
-        _both_press_start_us = 0u;
-        _pin_reset_hold_fired = false;
-    }
-}
-
 /** @brief Run the hold state machine for both buttons. */
 static void _buttons_task(uint64_t now_us)
 {
+    // Both held (the bootloader combo at power-up): neither button's own action runs
     if (_both_buttons_pressed())
     {
-        _both_buttons_pin_reset_task(now_us);
         _btn1.was_pressed = true;
         _btn2.was_pressed = true;
         return;
     }
-
-    _both_buttons_pin_reset_task(now_us);
 
     _button_task(&_btn1, now_us);
     _button_task(&_btn2, now_us);
@@ -404,7 +362,7 @@ void dongle_rgb_task(uint64_t now_us)
 
     bool refresh = false;
 
-    /* Link status lives in its own state machine (owned by the wlan task),
+    /* Link status lives in its own state machine (owned by the radio task),
      * separate from the transmitted status union. */
     dongle_link_status_t link = dongle_api_host_transport_get_link_status();
     if (link != _link)

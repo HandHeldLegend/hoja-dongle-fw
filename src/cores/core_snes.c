@@ -13,7 +13,7 @@
  *
  * Like the N64 core, this speaks to the console directly
  * (GAMEPAD_TRANSPORT_NESBUS) rather than over USB. Button reports are sourced
- * from the WLAN link; the transport works out per latch whether an NES or an
+ * from the link; the transport works out per latch whether an NES or an
  * SNES is reading it.
  */
 
@@ -28,7 +28,7 @@
 #define CORE_SNES_DEFAULT_NAME "SNES Controller"
 #define CORE_SNES_DEFAULT_MFG  "Nintendo"
 
-static core_hid_device_t _snes_wlan_hid = {
+static core_hid_device_t _snes_dongle_hid = {
     .name = CORE_SNES_DEFAULT_NAME,
     .manufacturer = CORE_SNES_DEFAULT_MFG,
 };
@@ -37,7 +37,7 @@ static core_hid_device_t _snes_wlan_hid = {
  * Starts with every button released (active low). */
 static core_snes_report_s _last_report = {.value = 0xFFFFFFFF};
 
-/* Build the SNES report from the freshest WLAN packet, else repeat the last one. */
+/* Build the SNES report from the freshest report from the gamepad, else repeat the last one. */
 bool _core_snes_get_generated_report(core_report_s *out)
 {
     out->reportformat = CORE_REPORTFORMAT_SNES;
@@ -69,8 +69,8 @@ bool core_snes_init(core_params_s *params, const dongle_wake_s *wake)
     _snes_core_params = params;
     _last_report.value = 0xFFFFFFFF;
 
-    core_hid_apply_wake_identity(wake, &_snes_wlan_hid, CORE_SNES_DEFAULT_NAME, CORE_SNES_DEFAULT_MFG);
-    params->hid_device = &_snes_wlan_hid;
+    core_hid_apply_wake_identity(wake, &_snes_dongle_hid, CORE_SNES_DEFAULT_NAME, CORE_SNES_DEFAULT_MFG);
+    params->hid_device = &_snes_dongle_hid;
 
     params->core_pollrate_us = 1000;
     params->core_report_format = CORE_REPORTFORMAT_SNES;

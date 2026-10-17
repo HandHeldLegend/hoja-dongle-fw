@@ -16,7 +16,6 @@
 #include <dongle_host.h>
 
 #include "utilities/dongle_info.h"
-#include "utilities/dongle_pin.h"
 #include "utilities/host_detect.h"
 
 #include "hhl_tusb.h"
@@ -52,10 +51,6 @@ static void _build_info(void)
     _local[1] = DONGLE_PROTOCOL_VERSION;
     _local[2] = DONGLE_BOARD_ID;
     _put_u32(&_local[4], DONGLE_FW_VERSION);
-
-    uint8_t pin[4];
-    dongle_pin_get(pin);
-    _put_u16(&_local[8], dongle_wlan_pin_to_u16(pin));
 
     dongle_host_kind_t kind;
     dongle_mode_t mode;
