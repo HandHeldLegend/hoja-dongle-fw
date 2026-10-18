@@ -15,8 +15,8 @@
 /* The CYW43 shared-bus transport writes a 4-byte header in front of each packet */
 #define FLOSS_TRANSPORT_MAX_HEADROOM 4
 
-/* Classic link profile only */
-#define FLOSS_ENABLE_LE     0
+/* The Classic link profile, and LE for the beacon gamepads listen for (dongle_link.h) */
+#define FLOSS_ENABLE_LE     1
 #define FLOSS_ENABLE_RFCOMM 0
 #define FLOSS_ENABLE_LINK   1
 

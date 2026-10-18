@@ -303,6 +303,54 @@ static const floss_l2cap_ops_t _rel_ops = {
     .on_data = _rel_on_data,
 };
 
+/* The beacon (dongle_link.h), sent while no gamepad is linked */
+static floss_addr_t _addr;
+
+static void _beacon_task(void)
+{
+    static bool configured = false;
+    static bool on = false;
+
+    const bool want = _radio_ready && !floss_link_connected();
+    if (want == on)
+    {
+        return;
+    }
+
+    if (want && !configured)
+    {
+        floss_le_adv_params_t p;
+        floss_le_adv_params_defaults(&p);
+        p.interval_min = DONGLE_LINK_BEACON_INTERVAL;
+        p.interval_max = DONGLE_LINK_BEACON_INTERVAL;
+        p.non_connectable = true;
+        p.auto_restart = false;
+        floss_le_adv_set_params(&p);
+
+        uint8_t ad[2 + DONGLE_LINK_BEACON_DATA_LEN];
+        ad[0] = 1 + DONGLE_LINK_BEACON_DATA_LEN;
+        ad[1] = 0xFF; /* manufacturer specific data */
+        ad[2] = DONGLE_LINK_BEACON_COMPANY & 0xFF;
+        ad[3] = DONGLE_LINK_BEACON_COMPANY >> 8;
+        ad[4] = DONGLE_LINK_BEACON_MAGIC0;
+        ad[5] = DONGLE_LINK_BEACON_MAGIC1;
+        ad[6] = DONGLE_LINK_BEACON_VERSION;
+        memcpy(&ad[7], _addr.b, 6);
+        floss_le_adv_set_data(ad, sizeof(ad));
+        configured = true;
+    }
+
+    on = want;
+    if (on)
+    {
+        floss_le_adv_start();
+    }
+    else
+    {
+        floss_le_adv_stop();
+    }
+}
+
 static void _on_gap_event(const floss_gap_evt_t *evt, void *user)
 {
     (void)user;
@@ -384,15 +432,15 @@ void dongle_radio_core1_entry(void)
     floss_link_init(&_link_cfg, &_link_cb);
     floss_l2cap_register_psm(DONGLE_LINK_PSM_RELIABLE, &_rel_ops, NULL, FLOSS_SEC_ENCRYPTED);
 
-    floss_addr_t addr;
-    floss_cyw43_default_addr(&addr);
-    floss_hci_set_addr_override(&addr);
+    floss_cyw43_default_addr(&_addr);
+    floss_hci_set_addr_override(&_addr);
     floss_start();
 
     for (;;)
     {
         floss_poll();
         _link_service();
+        _beacon_task();
 #if DONGLE_LINK_DIAG
         _diag_interval_task();
 #endif
