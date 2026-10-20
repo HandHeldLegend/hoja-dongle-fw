@@ -25,6 +25,7 @@
 #include "hhl_tusb_slippi.h"
 
 #include "cores/core_slippi.h"
+#include "cores/core_ns2gc.h"
 
 #include "cores/cores.h"
 
@@ -107,7 +108,8 @@ bool core_slippi_init(core_params_s *params, const dongle_wake_s *wake)
 
     core_hid_apply_wake_identity(wake, &_slippi_hid_device, SLIPPI_DEFAULT_NAME, SLIPPI_DEFAULT_MFG);
 
-    params->core_pollrate_us = 1000;
+    /* On a console, Nintendo's adapter: polled every 8 ms (1 kHz upsets a Switch) */
+    params->core_pollrate_us = core_ns2gc_console_rate() ? 8000 : 1000;
     params->hid_device = &_slippi_hid_device;
 
     params->core_report_format = CORE_REPORTFORMAT_SLIPPI;

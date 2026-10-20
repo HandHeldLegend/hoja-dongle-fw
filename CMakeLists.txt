@@ -158,6 +158,14 @@ target_link_libraries(hoja-dongle-fw
         hhl_tinyusb_drivers
         )
 
+# NS2-LIB-HID (the Switch 2's GameCube controller): external/NS2-LIB-HID, or a checkout HOJA_NS2_LIB_DIR names
+set(HOJA_NS2_LIB_DIR "${CMAKE_CURRENT_LIST_DIR}/external/NS2-LIB-HID" CACHE PATH "NS2-LIB-HID checkout")
+if(EXISTS "${HOJA_NS2_LIB_DIR}/CMakeLists.txt")
+    add_subdirectory("${HOJA_NS2_LIB_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/ns2_lib_hid")
+    target_link_libraries(hoja-dongle-fw ns2_lib_hid)
+    target_compile_definitions(hoja-dongle-fw PRIVATE HOJA_NS2=1)
+endif()
+
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/include/generated)
 
 # The firmware version is the UTC time CMake configured the build, like the gamepads' builds.

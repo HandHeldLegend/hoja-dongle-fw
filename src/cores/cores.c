@@ -31,6 +31,7 @@
 
 #include "cores/core_sinput.h"
 #include "cores/core_slippi.h"
+#include "cores/core_ns2gc.h"
 #include "cores/core_n64.h"
 #include "cores/core_gamecube.h"
 #include "cores/core_snes.h"
@@ -123,6 +124,12 @@ bool core_init(const dongle_wake_s *wake)
 #endif
 
     case DONGLE_MODE_SLIPPI:
+        /* A gamepad that sends the Switch 2 GameCube controller's input, on a Switch: that
+         * controller first, until the Switch turns out to be a Switch 1 */
+        if (core_ns2gc_wanted(wake))
+        {
+            return core_ns2gc_init(&_core_params, wake);
+        }
         return core_slippi_init(&_core_params, wake);
 
     default:
