@@ -33,6 +33,14 @@
       "cacheVariables": {
         "HOJA_DONGLE_BOARD": "pico2_w"
       }
+    },
+    {
+      "name": "rp2350b-plus-w",
+      "displayName": "Waveshare RP2350B-Plus-W (USB only)",
+      "inherits": "base",
+      "cacheVariables": {
+        "HOJA_DONGLE_BOARD": "rp2350b_plus_w"
+      }
     }
   ],
   "buildPresets": [
@@ -47,6 +55,10 @@
     {
       "name": "pico-2w",
       "configurePreset": "pico-2w"
+    },
+    {
+      "name": "rp2350b-plus-w",
+      "configurePreset": "rp2350b-plus-w"
     }
   ]
 }

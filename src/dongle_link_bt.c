@@ -42,6 +42,11 @@
 #include "floss/floss.h"
 #include "floss_cyw43.h"
 
+#if defined(HOJA_USB_ONLY) && defined(CYW43_WL_GPIO_LED_PIN)
+#include "cyw43.h"
+#define DONGLE_STATUS_LED 1
+#endif
+
 /* -------------------------------------------------------------------------- */
 /* FLOSS platform (HAL)                                                       */
 /* -------------------------------------------------------------------------- */
@@ -400,6 +405,47 @@ static void _link_service(void)
     }
 }
 
+#if defined(DONGLE_STATUS_LED)
+/* The Pico boards' LED is on the radio module, so only this core can set it: on while a gamepad's
+ * session is up, blinking while the dongle waits for one. Each change is one command to the
+ * radio, and none while the light holds still. */
+#define DONGLE_STATUS_LED_BLINK_US 500000u
+
+static void _status_led_task(void)
+{
+    static int8_t shown = -1;
+    static uint32_t blink_at = 0;
+    static bool blink_on = false;
+
+    if (!_radio_ready)
+    {
+        return;
+    }
+
+    bool on;
+    if (_rel)
+    {
+        on = true;
+    }
+    else
+    {
+        uint32_t now = time_us_32();
+        if ((int32_t)(now - blink_at) >= 0)
+        {
+            blink_at = now + DONGLE_STATUS_LED_BLINK_US;
+            blink_on = !blink_on;
+        }
+        on = blink_on;
+    }
+
+    if ((int8_t)on != shown)
+    {
+        shown = (int8_t)on;
+        cyw43_gpio_set(&cyw43_state, CYW43_WL_GPIO_LED_PIN, on);
+    }
+}
+#endif
+
 /* -------------------------------------------------------------------------- */
 /* Core 1 entry                                                               */
 /* -------------------------------------------------------------------------- */
@@ -441,6 +487,9 @@ void dongle_radio_core1_entry(void)
         floss_poll();
         _link_service();
         _beacon_task();
+#if defined(DONGLE_STATUS_LED)
+        _status_led_task();
+#endif
 #if DONGLE_LINK_DIAG
         _diag_interval_task();
 #endif

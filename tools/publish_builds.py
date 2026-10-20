@@ -24,6 +24,7 @@ BOARDS = [
     ("build/hoja", "dongle_hoja"),
     ("build/pico-w", "dongle_pico_w"),
     ("build/pico-2w", "dongle_pico2_w"),
+    ("build/rp2350b-plus-w", "dongle_rp2350b_plus_w"),
 ]
 
 PICO_SDK = os.path.join(os.path.expanduser("~"), ".pico-sdk")

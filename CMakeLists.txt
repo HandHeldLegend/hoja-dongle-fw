@@ -26,8 +26,8 @@ endif()
 # Select the hardware layout before importing the Pico SDK.  The HOJA board is
 # RP2350-based but has a custom CYW43 pinout; the official Pico W boards use the
 # SDK board definitions and intentionally omit the wired Joybus backends.
-set(HOJA_DONGLE_BOARD "hoja" CACHE STRING "Target board: hoja, pico_w, or pico2_w")
-set_property(CACHE HOJA_DONGLE_BOARD PROPERTY STRINGS hoja pico_w pico2_w)
+set(HOJA_DONGLE_BOARD "hoja" CACHE STRING "Target board: hoja, pico_w, pico2_w, or rp2350b_plus_w")
+set_property(CACHE HOJA_DONGLE_BOARD PROPERTY STRINGS hoja pico_w pico2_w rp2350b_plus_w)
 
 if(HOJA_DONGLE_BOARD STREQUAL "hoja")
     set(PICO_BOARD pico2_w CACHE STRING "Pico SDK board type" FORCE)
@@ -35,10 +35,15 @@ elseif(HOJA_DONGLE_BOARD STREQUAL "pico_w" OR
        HOJA_DONGLE_BOARD STREQUAL "pico2_w")
     set(PICO_BOARD ${HOJA_DONGLE_BOARD} CACHE STRING "Pico SDK board type" FORCE)
     set(HOJA_USB_ONLY ON)
+elseif(HOJA_DONGLE_BOARD STREQUAL "rp2350b_plus_w")
+    # Waveshare RP2350B-Plus-W: the radio on RP2350B-only pins, from our own board definition
+    list(APPEND PICO_BOARD_HEADER_DIRS ${CMAKE_CURRENT_LIST_DIR}/boards)
+    set(PICO_BOARD waveshare_rp2350b_plus_w CACHE STRING "Pico SDK board type" FORCE)
+    set(HOJA_USB_ONLY ON)
 else()
     message(FATAL_ERROR
         "Unknown HOJA_DONGLE_BOARD='${HOJA_DONGLE_BOARD}'. "
-        "Expected hoja, pico_w, or pico2_w.")
+        "Expected hoja, pico_w, pico2_w, or rp2350b_plus_w.")
 endif()
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
@@ -115,6 +120,9 @@ if(HOJA_DONGLE_BOARD STREQUAL "hoja")
         )
 else()
     target_compile_definitions(hoja-dongle-fw PRIVATE HOJA_USB_ONLY=1)
+endif()
+if(HOJA_DONGLE_BOARD STREQUAL "rp2350b_plus_w")
+    target_compile_definitions(hoja-dongle-fw PRIVATE HOJA_DONGLE_RP2350B_PLUS_W=1)
 endif()
 
 # Test builds: link timing in SInput reports' unused bytes (dongle_link_bt.c)
