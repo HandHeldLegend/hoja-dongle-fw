@@ -160,8 +160,8 @@ bool transport_usb_init(core_params_s *params)
         tcfg.webusb.enabled = true;
         break;
 
-    // The config app's interface beside XInput and Slippi on a computer only: a console gets the
-    // device it knows
+    // The config app's interface beside XInput on a computer only: a console gets the device it
+    // knows
     case CORE_REPORTFORMAT_XINPUT:
 #if (HHL_TUSB_DRIVER_XINPUT_ENABLE)
         _usb_frames = 2;
@@ -181,11 +181,12 @@ bool transport_usb_init(core_params_s *params)
             break;
         }
 #if (HHL_TUSB_DRIVER_SLIPPI_ENABLE)
-        // On a console, Nintendo's adapter: polled every 8 ms
+        // On a console, Nintendo's adapter: polled every 8 ms. The plain adapter everywhere: with
+        // the config app's interface beside it, Dolphin doesn't take the adapter on a computer
         tcfg.slippi_console = core_ns2gc_console_rate();
         _usb_frames = tcfg.slippi_console ? 8 : 2;
         tcfg.driver = HHL_TUSB_DRIVER_SLIPPI;
-        tcfg.webusb.enabled = host_detect_is_pc() && !tcfg.slippi_console;
+        tcfg.webusb.enabled = false;
         break;
 #else
         return false;
