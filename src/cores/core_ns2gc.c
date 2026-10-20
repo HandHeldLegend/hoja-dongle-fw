@@ -170,14 +170,13 @@ bool core_ns2gc_console_rate(void)
 
 void ns2_api_hook_get_input(ns2_input_s *out)
 {
+    // The live lane is the latest report (reading it again gives the same one)
     dongle_pkt_s pkt;
-    while (dongle_api_host_transport_get_inputpacket(&pkt))
+    if (dongle_api_host_transport_get_inputpacket(&pkt) &&
+        pkt.len >= DONGLE_NS2GC_BLOCK_OFFSET + DONGLE_NS2GC_BLOCK_LEN)
     {
-        if (pkt.len >= DONGLE_NS2GC_BLOCK_OFFSET + DONGLE_NS2GC_BLOCK_LEN)
-        {
-            memcpy(_ns2gc_block, &pkt.data[DONGLE_NS2GC_BLOCK_OFFSET], sizeof(_ns2gc_block));
-            _ns2gc_block_valid = true;
-        }
+        memcpy(_ns2gc_block, &pkt.data[DONGLE_NS2GC_BLOCK_OFFSET], sizeof(_ns2gc_block));
+        _ns2gc_block_valid = true;
     }
 
     // Nothing from the gamepad yet: the library's rest state (sticks centred)
@@ -285,9 +284,6 @@ static bool _ns2gc_report(core_report_s *out)
     uint16_t len = 0;
     if (!ns2_usb_generate_inputreport(out->data, &len))
     {
-        // Not reporting yet: the input still has to be taken, or the link's queue backs up
-        ns2_input_s in;
-        ns2_api_hook_get_input(&in);
         return false;
     }
     out->reportformat = CORE_REPORTFORMAT_SLIPPI;
