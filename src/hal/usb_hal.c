@@ -54,9 +54,12 @@ volatile uint8_t ms_counter = 0;
 uint32_t _usb_frames = 8;
 volatile bool _usb_ready = false;
 volatile bool _usb_sendit = false;
-// A computer polling every frame: each new report from the gamepad goes out as it arrives (one a
-// slot pair, 1.25 ms), instead of the newest one every other frame (500 Hz, the rest overwritten)
+// A computer polling every frame: while the gamepad is linked, each new report from it goes out as
+// it arrives (one a slot pair, 1.25 ms), instead of the newest one every other frame (500 Hz, the
+// rest overwritten). Without the link the frames pace the sends as before: XInput and Slippi carry
+// on sending their last state, which adapter software expects.
 static bool _usb_on_arrival = false;
+static volatile bool _usb_arrival_live = false;
 
 static void _usb_hal_hid_output_report(const uint8_t *buffer, uint16_t len)
 {
@@ -78,7 +81,7 @@ static void _usb_hal_on_sof(uint32_t frame_count)
 
     // No frame pacing: the gamepad's reports pace the sends. No send marks either: the link only
     // steers against sends that repeat on whole periods of its own
-    if (_usb_on_arrival)
+    if (_usb_arrival_live)
         return;
 
     ms_counter++;
@@ -155,11 +158,12 @@ bool transport_usb_init(core_params_s *params)
     tcfg.hooks.vendor_rx = dongle_webusb_rx;
 
     _usb_on_arrival = false;
+    _usb_arrival_live = false;
 
     switch (_usb_core_params->core_report_format)
     {
+    // On a computer each is polled every 1 ms (their descriptors' bInterval)
     case CORE_REPORTFORMAT_SINPUT:
-        // Polled every 1 ms (the descriptor's bInterval)
         _usb_on_arrival = true;
         _usb_frames = 2;
         tcfg.driver = HHL_TUSB_DRIVER_HID;
@@ -176,6 +180,7 @@ bool transport_usb_init(core_params_s *params)
     // knows
     case CORE_REPORTFORMAT_XINPUT:
 #if (HHL_TUSB_DRIVER_XINPUT_ENABLE)
+        _usb_on_arrival = host_detect_is_pc();
         _usb_frames = 2;
         tcfg.driver = HHL_TUSB_DRIVER_XINPUT;
         tcfg.webusb.enabled = host_detect_is_pc();
@@ -196,6 +201,7 @@ bool transport_usb_init(core_params_s *params)
         // On a console, Nintendo's adapter: polled every 8 ms. The plain adapter everywhere: with
         // the config app's interface beside it, Dolphin doesn't take the adapter on a computer
         tcfg.slippi_console = core_ns2gc_console_rate();
+        _usb_on_arrival = !tcfg.slippi_console;
         _usb_frames = tcfg.slippi_console ? 8 : 2;
         tcfg.driver = HHL_TUSB_DRIVER_SLIPPI;
         tcfg.webusb.enabled = false;
@@ -236,9 +242,17 @@ void transport_usb_task(uint64_t timestamp)
         _usb_ready = hhl_tusb_report_ready();
     }
 
+    bool live = _usb_on_arrival && (dongle_api_host_transport_get_link_status() == DONGLE_LINK_UP);
+    if (live != _usb_arrival_live)
+    {
+        _usb_arrival_live = live;
+        _usb_sendit = false;
+        ms_counter = 0;
+    }
+
     // Queued as soon as the host has taken the last one: polls come every frame, so a report that
     // arrives while the last one still waits goes out a frame later at most
-    if (_usb_on_arrival && _usb_ready && dongle_api_host_transport_input_new())
+    if (live && _usb_ready && dongle_api_host_transport_input_new())
         _usb_sendit = true;
 
     if (_usb_sendit && _usb_ready)
