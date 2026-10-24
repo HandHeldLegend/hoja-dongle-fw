@@ -54,6 +54,9 @@ volatile uint8_t ms_counter = 0;
 uint32_t _usb_frames = 8;
 volatile bool _usb_ready = false;
 volatile bool _usb_sendit = false;
+// A computer polling every frame: each new report from the gamepad goes out as it arrives (one a
+// slot pair, 1.25 ms), instead of the newest one every other frame (500 Hz, the rest overwritten)
+static bool _usb_on_arrival = false;
 
 static void _usb_hal_hid_output_report(const uint8_t *buffer, uint16_t len)
 {
@@ -72,6 +75,11 @@ static void _usb_hal_on_mount(void)
 static void _usb_hal_on_sof(uint32_t frame_count)
 {
     (void)frame_count;
+
+    // No frame pacing: the gamepad's reports pace the sends. No send marks either: the link only
+    // steers against sends that repeat on whole periods of its own
+    if (_usb_on_arrival)
+        return;
 
     ms_counter++;
 
@@ -146,9 +154,13 @@ bool transport_usb_init(core_params_s *params)
     tcfg.hooks.on_sof = _usb_hal_on_sof;
     tcfg.hooks.vendor_rx = dongle_webusb_rx;
 
+    _usb_on_arrival = false;
+
     switch (_usb_core_params->core_report_format)
     {
     case CORE_REPORTFORMAT_SINPUT:
+        // Polled every 1 ms (the descriptor's bInterval)
+        _usb_on_arrival = true;
         _usb_frames = 2;
         tcfg.driver = HHL_TUSB_DRIVER_HID;
         tcfg.webusb.enabled = true;
@@ -223,6 +235,11 @@ void transport_usb_task(uint64_t timestamp)
     {
         _usb_ready = hhl_tusb_report_ready();
     }
+
+    // Queued as soon as the host has taken the last one: polls come every frame, so a report that
+    // arrives while the last one still waits goes out a frame later at most
+    if (_usb_on_arrival && _usb_ready && dongle_api_host_transport_input_new())
+        _usb_sendit = true;
 
     if (_usb_sendit && _usb_ready)
     {
